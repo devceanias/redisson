@@ -15,10 +15,26 @@
  */
 package org.redisson.cache;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.MonthDay;
+import java.time.OffsetDateTime;
+import java.time.OffsetTime;
+import java.time.Period;
+import java.time.Year;
+import java.time.YearMonth;
+import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.Map.Entry;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import org.redisson.RedissonObject;
@@ -28,7 +44,7 @@ import org.redisson.misc.Hash;
 import io.netty.buffer.ByteBuf;
 
 /**
- * 
+ *
  * @author Nikita Koksharov
  *
  * @param <K> key type
@@ -37,14 +53,14 @@ import io.netty.buffer.ByteBuf;
 public class LocalCacheView<K, V> {
 
     private final RedissonObject object;
-    private final ConcurrentMap<CacheKey, CacheValue> cache;
-    private final ConcurrentMap<Object, CacheKey> cacheKeyMap;
+    private final ConcurrentMap<Object, CacheValue> cache;
+    private final ConcurrentMap<CacheKey, Object> cacheKeyMap;
     private final boolean useObjectAsCacheKey;
 
     public LocalCacheView(LocalCachedMapOptions<?, ?> options, RedissonObject object) {
         this.cache = createCache(options);
         this.object = object;
-        this.cacheKeyMap = createCache(options);
+        this.cacheKeyMap = new ConcurrentHashMap<>();
         this.useObjectAsCacheKey = options.isUseObjectAsCacheKey();
     }
 
@@ -59,7 +75,7 @@ public class LocalCacheView<K, V> {
             return new Iterator<K>() {
 
                 private Iterator<CacheValue> iter = cache.values().iterator();
-                
+
                 @Override
                 public boolean hasNext() {
                     return iter.hasNext();
@@ -69,12 +85,10 @@ public class LocalCacheView<K, V> {
                 public K next() {
                     return (K) iter.next().getKey();
                 }
-                
+
                 @Override
                 public void remove() {
-                    if (useObjectAsCacheKey) {
-                        cacheKeyMap.remove(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
-                    }
+                    removeCacheKey(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
                     iter.remove();
                 }
             };
@@ -82,17 +96,20 @@ public class LocalCacheView<K, V> {
 
         @Override
         public boolean contains(Object o) {
-            CacheKey cacheKey = toCacheKey(o);
-            return cache.containsKey(cacheKey);
+            return cache.containsKey(toLookupKey(o));
         }
 
         @Override
         public boolean remove(Object o) {
-            CacheKey cacheKey = toCacheKey(o);
-            if (useObjectAsCacheKey) {
-                cacheKeyMap.remove(o);
+            final CacheValue value = cache.remove(toLookupKey(o));
+
+            if (value == null) {
+                return false;
             }
-            return cache.remove(cacheKey) != null;
+
+            removeCacheKey(value.getKey());
+
+            return true;
         }
 
         @Override
@@ -102,26 +119,24 @@ public class LocalCacheView<K, V> {
 
         @Override
         public void clear() {
-            if (useObjectAsCacheKey) {
-                cacheKeyMap.clear();
-            }
             cache.clear();
+            cacheKeyMap.clear();
         }
 
     }
-    
+
     public Collection<V> cachedValues() {
         return new LocalValues();
     }
-    
+
     final class LocalValues extends AbstractCollection<V> {
 
         @Override
         public Iterator<V> iterator() {
             return new Iterator<V>() {
-                
+
                 private Iterator<CacheValue> iter = cache.values().iterator();
-                
+
                 @Override
                 public boolean hasNext() {
                     return iter.hasNext();
@@ -131,12 +146,10 @@ public class LocalCacheView<K, V> {
                 public V next() {
                     return (V) iter.next().getValue();
                 }
-                
+
                 @Override
                 public void remove() {
-                    if (useObjectAsCacheKey) {
-                        cacheKeyMap.remove(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
-                    }
+                    removeCacheKey(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
                     iter.remove();
                 }
             };
@@ -156,9 +169,7 @@ public class LocalCacheView<K, V> {
         @Override
         public void clear() {
             cache.clear();
-            if (useObjectAsCacheKey) {
-                cacheKeyMap.clear();
-            }
+            cacheKeyMap.clear();
         }
 
     }
@@ -172,9 +183,9 @@ public class LocalCacheView<K, V> {
         @Override
         public Iterator<Map.Entry<K, V>> iterator() {
             return new Iterator<Map.Entry<K, V>>() {
-                
+
                 private Iterator<CacheValue> iter = cache.values().iterator();
-                
+
                 @Override
                 public boolean hasNext() {
                     return iter.hasNext();
@@ -186,12 +197,10 @@ public class LocalCacheView<K, V> {
                     V val = toValue(e);
                     return new AbstractMap.SimpleEntry<K, V>((K) e.getKey(), val);
                 }
-                
+
                 @Override
                 public void remove() {
-                    if (useObjectAsCacheKey) {
-                        cacheKeyMap.remove(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
-                    }
+                    removeCacheKey(((AbstractCacheMap.MapIterator) iter).cursorValue().getKey());
                     iter.remove();
                 }
             };
@@ -202,8 +211,9 @@ public class LocalCacheView<K, V> {
             if (!(o instanceof Map.Entry))
                 return false;
             Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
-            CacheKey cacheKey = toCacheKey(e.getKey());
-            CacheValue entry = cache.get(cacheKey);
+
+            final CacheValue entry = cache.get(toLookupKey(e.getKey()));
+
             return entry != null && entry.getValue().equals(e.getValue());
         }
 
@@ -211,11 +221,16 @@ public class LocalCacheView<K, V> {
         public boolean remove(Object o) {
             if (o instanceof Map.Entry) {
                 Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
-                CacheKey cacheKey = toCacheKey(e.getKey());
-                if (useObjectAsCacheKey) {
-                    cacheKeyMap.remove(e.getKey());
+
+                final CacheValue value = cache.remove(toLookupKey(e.getKey()));
+
+                if (value == null) {
+                    return false;
                 }
-                return cache.remove(cacheKey) != null;
+
+                removeCacheKey(value.getKey());
+
+                return true;
             }
             return false;
         }
@@ -228,32 +243,31 @@ public class LocalCacheView<K, V> {
         @Override
         public void clear() {
             cache.clear();
+            cacheKeyMap.clear();
         }
 
     }
-    
+
     public Map<K, V> getCachedMap() {
         return new LocalMap();
     }
-    
+
     final class LocalMap extends AbstractMap<K, V> {
 
         @Override
         public V get(Object key) {
-            CacheKey cacheKey = toCacheKey(key);
-            CacheValue e = cache.get(cacheKey);
+            CacheValue e = cache.get(toLookupKey(key));
             if (e != null) {
                 return (V) e.getValue();
             }
             return null;
         }
-        
+
         @Override
         public boolean containsKey(Object key) {
-            CacheKey cacheKey = toCacheKey(key);
-            return cache.containsKey(cacheKey);
+            return cache.containsKey(toLookupKey(key));
         }
-        
+
         @Override
         public boolean containsValue(Object value) {
             CacheValue cacheValue = new CacheValue(null, value);
@@ -272,13 +286,6 @@ public class LocalCacheView<K, V> {
     }
 
     public CacheKey toCacheKey(Object key) {
-        CacheKey cacheKey;
-        if (useObjectAsCacheKey) {
-            cacheKey = cacheKeyMap.get(key);
-            if (cacheKey != null) {
-                return cacheKey;
-            }
-        }
         ByteBuf encoded = encodeMapKey(key);
         try {
             return toCacheKey(encoded);
@@ -291,10 +298,34 @@ public class LocalCacheView<K, V> {
         return object.encodeMapKey(key);
     }
 
-    public void putCacheKey(Object key, CacheKey cacheKey) {
-        if (useObjectAsCacheKey) {
-            cacheKeyMap.put(key, cacheKey);
+    public Object toLookupKey(Object key) {
+        if (isObjectLookupKey(key)) {
+            return key;
         }
+
+        return toCacheKey(key);
+    }
+
+    public Object toLookupKey(final CacheKey cacheKey, final Object key) {
+        if (!isObjectLookupKey(key)) {
+            return cacheKey;
+        }
+
+        cacheKeyMap.put(cacheKey, key);
+
+        return key;
+    }
+
+    public void removeCacheKey(final Object key) {
+        if (!isObjectLookupKey(key)) {
+            return;
+        }
+
+        cacheKeyMap.entrySet().removeIf(entry -> Objects.equals(entry.getValue(), key));
+    }
+
+    public Object removeCacheKey(final CacheKey cacheKey) {
+        return cacheKeyMap.remove(cacheKey);
     }
 
     public CacheKey toCacheKey(ByteBuf encodedKey) {
@@ -305,8 +336,43 @@ public class LocalCacheView<K, V> {
         return (ConcurrentMap<K1, V1>) cache;
     }
 
-    public ConcurrentMap<Object, CacheKey> getCacheKeyMap() {
+    public ConcurrentMap<CacheKey, Object> getCacheKeyMap() {
         return cacheKeyMap;
+    }
+
+    private boolean isObjectLookupKey(final Object key) {
+        if (key == null) {
+            return false;
+        }
+
+        return useObjectAsCacheKey
+            || key instanceof String
+            || key instanceof UUID
+            || key instanceof Enum
+            || key instanceof Boolean
+            || key instanceof Byte
+            || key instanceof Short
+            || key instanceof Integer
+            || key instanceof Long
+            || key instanceof Float
+            || key instanceof Double
+            || key instanceof Character
+            || key instanceof BigInteger
+            || key instanceof BigDecimal
+            || key instanceof Instant
+            || key instanceof LocalDate
+            || key instanceof LocalDateTime
+            || key instanceof LocalTime
+            || key instanceof OffsetDateTime
+            || key instanceof OffsetTime
+            || key instanceof ZonedDateTime
+            || key instanceof Year
+            || key instanceof YearMonth
+            || key instanceof MonthDay
+            || key instanceof Duration
+            || key instanceof Period
+            || key instanceof Class
+            || key.getClass().isRecord();
     }
 
     public <K1, V1> ConcurrentMap<K1, V1> createCache(LocalCachedMapOptions<?, ?> options) {
