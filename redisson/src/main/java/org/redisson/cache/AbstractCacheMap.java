@@ -42,6 +42,9 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
     private final long maxIdleInMillis;
     private Consumer<CachedValue<K, V>> removalListener;
 
+    private final boolean entryExpiration;
+    private volatile boolean valueExpiration;
+
     /**
      * the least expire time of entry in the map
      */
@@ -54,6 +57,8 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
         this.size = size;
         this.maxIdleInMillis = maxIdleInMillis;
         this.timeToLiveInMillis = timeToLiveInMillis;
+
+        entryExpiration = timeToLiveInMillis != 0 || maxIdleInMillis != 0;
     }
 
     protected void onValueRead(CachedValue<K, V> value) {
@@ -113,15 +118,11 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
     }
 
     private boolean isValueExpired(CachedValue<K, V> entry) {
-        if (entry.isExpired()) {
+        if (entryExpiration && entry.isExpired()) {
             return true;
         }
-        if (entry.getValue() instanceof ExpirableValue) {
-            if (((ExpirableValue) entry.getValue()).isExpired()) {
-                return true;
-            }
-        }
-        return false;
+
+        return valueExpiration && entry.isValueExpired();
     }
 
     /*
@@ -207,17 +208,27 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
     }
 
     protected CachedValue<K, V> create(K key, V value, long ttl, long maxIdleTime) {
+        registerValueExpiration(value);
+
         return new StdCachedValue<K, V>(key, value, ttl, maxIdleTime);
+    }
+
+    protected void registerValueExpiration(final V value) {
+        if (!(value instanceof ExpirableValue)) {
+            return;
+        }
+
+        valueExpiration = true;
     }
 
     protected void onValueCreate(CachedValue<K, V> entry) {
     }
 
     protected boolean removeExpiredEntries() {
-        if (timeToLiveInMillis == 0 && maxIdleInMillis == 0) {
+        if (!entryExpiration && !valueExpiration) {
             return false;
         }
-        if (this.leastExpireTime.get() > System.currentTimeMillis()) {
+        if (entryExpiration && this.leastExpireTime.get() > System.currentTimeMillis()) {
             return false;
         }
         long newLeastExpireTime = Long.MAX_VALUE;
@@ -229,11 +240,13 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
                     onValueRemove(value);
                     removed = true;
                 }
-            } else {
+            } else if (entryExpiration) {
                 newLeastExpireTime = Math.min(newLeastExpireTime, value.getExpireTime());
             }
         }
-        updateLeastExpireTime(newLeastExpireTime);
+        if (entryExpiration) {
+            updateLeastExpireTime(newLeastExpireTime);
+        }
         return removed;
     }
     private void updateLeastExpireTime(long newLeastExpireTime) {

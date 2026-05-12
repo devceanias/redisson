@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * LFU (least frequently used) cache.
- * 
+ *
  * @author Nikita Koksharov
  *
  * @param <K> key
@@ -33,10 +33,10 @@ import java.util.concurrent.atomic.AtomicLong;
 public class LFUCacheMap<K, V> extends AbstractCacheMap<K, V> {
 
     public static class MapKey implements Comparable<MapKey> {
-        
+
         private Long accessCount;
         private LFUCachedValue cachedValue;
-        
+
         public MapKey(Long accessCount, LFUCachedValue cachedValue) {
             super();
             this.accessCount = accessCount;
@@ -56,14 +56,14 @@ public class LFUCacheMap<K, V> extends AbstractCacheMap<K, V> {
         public String toString() {
             return "MapKey [accessCount=" + accessCount + "]";
         }
-        
+
     }
-    
+
     public static class LFUCachedValue<K, V> extends StdCachedValue<K, V> {
 
         private final Long id;
         private long accessCount;
-        
+
         public LFUCachedValue(long id, K key, V value, long ttl, long maxIdleTime) {
             super(key, value, ttl, maxIdleTime);
             this.id = id;
@@ -72,18 +72,20 @@ public class LFUCacheMap<K, V> extends AbstractCacheMap<K, V> {
         public void addAccessCount(long value) {
             accessCount += value;
         }
-        
+
     }
     private final WrappedLock lock = new WrappedLock();
     private final AtomicLong idGenerator = new AtomicLong();
     private final ConcurrentNavigableMap<MapKey, LFUCachedValue<K, V>> accessMap = new ConcurrentSkipListMap<>();
-    
+
     public LFUCacheMap(int size, long timeToLiveInMillis, long maxIdleInMillis) {
         super(size, timeToLiveInMillis, maxIdleInMillis);
     }
-    
+
     @Override
     protected CachedValue<K, V> create(K key, V value, long ttl, long maxIdleTime) {
+        registerValueExpiration(value);
+
         return new LFUCachedValue<K, V>(idGenerator.incrementAndGet(), key, value, ttl, maxIdleTime);
     }
 

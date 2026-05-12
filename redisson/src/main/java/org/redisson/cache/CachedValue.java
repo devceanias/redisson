@@ -26,5 +26,7 @@ public interface CachedValue<K, V> extends ExpirableValue {
 
     V getValue();
 
+    boolean isValueExpired();
+
     WrappedLock getLock();
 }

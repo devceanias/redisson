@@ -23,9 +23,9 @@ import java.lang.ref.ReferenceQueue;
  */
 
 public class ReferenceCachedValue<K, V> extends StdCachedValue<K, V> implements CachedValue<K, V> {
-    
+
     public enum Type {SOFT, WEAK}
-    
+
     private final Reference<V> ref;
 
     public ReferenceCachedValue(K key, V value, long ttl, long maxIdleTime, ReferenceQueue<V> queue, Type type) {
@@ -43,4 +43,10 @@ public class ReferenceCachedValue<K, V> extends StdCachedValue<K, V> implements 
         return ref.get();
     }
 
+    @Override
+    public boolean isValueExpired() {
+        final V value = ref.get();
+
+        return value instanceof ExpirableValue && ((ExpirableValue) value).isExpired();
+    }
 }
