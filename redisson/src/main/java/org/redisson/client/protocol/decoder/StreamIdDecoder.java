@@ -38,7 +38,7 @@ public class StreamIdDecoder implements Decoder<Object> {
         if (parts.length == 1) {
             return null;
         }
-        return new StreamMessageId(Long.valueOf(parts[0]), Long.valueOf(parts[1]));
+        return new StreamMessageId(Long.parseLong(parts[0]), Long.parseLong(parts[1]));
     }
 
 }

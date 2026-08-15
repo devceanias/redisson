@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.redisson.api.RScoredSortedSetReactive;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.ScoredEntry;
+import reactor.test.StepVerifier;
 
 public class RedissonScoredSortedSetReactiveTest extends BaseReactiveTest {
 
@@ -118,12 +119,12 @@ public class RedissonScoredSortedSetReactiveTest extends BaseReactiveTest {
     public void testIteratorSequence() {
         RScoredSortedSetReactive<Integer> set = redisson.getScoredSortedSet("simple");
         for (int i = 0; i < 1000; i++) {
-            sync(set.add(i, Integer.valueOf(i)));
+            sync(set.add(i, i));
         }
 
         Set<Integer> setCopy = new HashSet<Integer>();
         for (int i = 0; i < 1000; i++) {
-            setCopy.add(Integer.valueOf(i));
+            setCopy.add(i);
         }
 
         checkIterator(set, setCopy);
@@ -315,6 +316,22 @@ public class RedissonScoredSortedSetReactiveTest extends BaseReactiveTest {
     }
 
     @Test
+    public void testEmptyCollectionResultsAsAbsent() {
+        RScoredSortedSetReactive<String> set = redisson.getScoredSortedSet("{simple}:empty");
+
+        set.readAll().as(StepVerifier::create).verifyComplete();
+        set.valueRange(0, -1).as(StepVerifier::create).verifyComplete();
+        set.entryRange(0, -1).as(StepVerifier::create).verifyComplete();
+        set.random(1).as(StepVerifier::create).verifyComplete();
+        set.randomEntries(1).as(StepVerifier::create).verifyComplete();
+        set.pollFirst(1).as(StepVerifier::create).verifyComplete();
+        set.pollLast(1).as(StepVerifier::create).verifyComplete();
+        set.readIntersection("{simple}:other").as(StepVerifier::create).verifyComplete();
+        set.readUnion("{simple}:other").as(StepVerifier::create).verifyComplete();
+        set.readDiff("{simple}:other").as(StepVerifier::create).verifyComplete();
+    }
+
+    @Test
     public void testAddAndGet() throws InterruptedException {
         RScoredSortedSetReactive<Integer> set = redisson.getScoredSortedSet("simple", StringCodec.INSTANCE);
         sync(set.add(1, 100));
@@ -327,7 +344,7 @@ public class RedissonScoredSortedSetReactiveTest extends BaseReactiveTest {
         RScoredSortedSetReactive<Integer> set2 = redisson.getScoredSortedSet("simple", StringCodec.INSTANCE);
         sync(set2.add(100.2, 1));
 
-        Double res2 = sync(set2.addScore(1, new Double(12.1)));
+        Double res2 = sync(set2.addScore(1, 12.1));
         Assertions.assertTrue(new Double(112.3).compareTo(res2) == 0);
         res2 = sync(set2.getScore(1));
         Assertions.assertTrue(new Double(112.3).compareTo(res2) == 0);

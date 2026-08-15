@@ -1,6 +1,7 @@
 package org.redisson.misc;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -8,11 +9,12 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class FastRmovalQueueTest {
+public class FastRemovalQueueTest {
 
     @Test
     public void testIterator() {
@@ -173,4 +175,138 @@ public class FastRmovalQueueTest {
         assertThat(totalPolled + removed.get() + pooled.get()).isEqualTo(numThreads * numElements);
     }
 
+    private static final int ROUNDS = 200;
+    private static final int ITERATIONS = 1000;
+    private static final int PARKED = 20;
+
+    @Test
+    @Timeout(1)
+    public void testConcurrentAddAndRemoveOfSameElement() throws Exception {
+        int corruptedRounds = 0;
+        Throwable firstError = null;
+
+        for (int round = 0; round < ROUNDS; round++) {
+            FastRemovalQueue<String> queue = new FastRemovalQueue<>();
+            List<String> parked = new ArrayList<>();
+            for (int i = 0; i < PARKED; i++) {
+                queue.add("parked-" + i);
+                parked.add("parked-" + i);
+            }
+
+            // both threads contend on one element; the parked ones are bystanders
+            Runnable job = () -> {
+                for (int i = 0; i < ITERATIONS; i++) {
+                    queue.add("hot");
+                    queue.remove("hot");
+                }
+            };
+            Thread first = new Thread(job);
+            Thread second = new Thread(job);
+            first.start();
+            second.start();
+            first.join();
+            second.join();
+
+            try {
+                if (!drain(queue).containsAll(parked)) {
+                    corruptedRounds++;
+                }
+            } catch (Throwable t) {
+                // corruption also leaves head != tail with head.next == null,
+                // so removeFirst() throws NPE on "head.prev = null"
+                corruptedRounds++;
+                if (firstError == null) {
+                    firstError = t;
+                }
+            }
+        }
+
+        assertThat(corruptedRounds)
+                .withFailMessage("%d of %d rounds lost elements that were parked before the race%s",
+                        corruptedRounds, ROUNDS,
+                        firstError == null ? "" : ", and poll() threw " + firstError)
+                .isZero();
+    }
+
+    private static List<String> drain(FastRemovalQueue<String> queue) {
+        List<String> drained = new ArrayList<>();
+        String element;
+        // bounded because a corrupted list can contain a cycle
+        while (drained.size() < 1000 && (element = queue.poll()) != null) {
+            drained.add(element);
+        }
+        return drained;
+    }
+
+    @Test
+    public void testClear() {
+        FastRemovalQueue<Integer> queue = new FastRemovalQueue<>();
+        queue.add(1);
+        queue.add(2);
+        queue.add(3);
+
+        queue.clear();
+
+        assertThat(queue.size()).isZero();
+        assertThat(queue.isEmpty()).isTrue();
+        assertThat(queue.poll()).isNull();
+        assertThat(queue).isEmpty();
+
+        queue.add(4);
+        queue.add(5);
+        assertThat(queue).containsExactly(4, 5);
+        assertThat(queue.poll()).isEqualTo(4);
+        assertThat(queue.poll()).isEqualTo(5);
+        assertThat(queue.poll()).isNull();
+    }
+
+    @Test
+    @Timeout(1)
+    public void testConcurrentClearAndAdd() throws Exception {
+        int rounds = 200;
+        int stranded = 0;
+        int worstRound = 0;
+
+        for (int round = 0; round < rounds; round++) {
+            FastRemovalQueue<Integer> queue = new FastRemovalQueue<>();
+            AtomicBoolean clearing = new AtomicBoolean(true);
+
+            Thread adder = new Thread(() -> {
+                int i = 0;
+                while (clearing.get()) {
+                    queue.add(i++);
+                }
+                for (int j = 0; j < 20; j++) {
+                    queue.add(-1 - j);
+                }
+            });
+            Thread clearer = new Thread(() -> {
+                for (int i = 0; i < 500; i++) {
+                    queue.clear();
+                }
+                clearing.set(false);
+            });
+            adder.start();
+            clearer.start();
+            adder.join();
+            clearer.join();
+
+            int size = queue.size();
+            int drained = 0;
+            while (queue.poll() != null && drained < 100000) {
+                drained++;
+            }
+            if (size != drained) {
+                stranded++;
+                worstRound = Math.max(worstRound, Math.abs(size - drained));
+            }
+        }
+
+        assertThat(stranded)
+                .withFailMessage("%d of %d rounds ended with size() disagreeing with what poll() "
+                                + "yields, worst by %d element(s) -- an add() that landed inside "
+                                + "clear() is indexed but not listed",
+                        stranded, rounds, worstRound)
+                .isZero();
+    }
 }

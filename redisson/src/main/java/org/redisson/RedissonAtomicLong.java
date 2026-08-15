@@ -18,7 +18,10 @@ package org.redisson;
 import org.redisson.api.ObjectListener;
 import org.redisson.api.RAtomicLong;
 import org.redisson.api.RFuture;
+import org.redisson.api.atomic.BaseIncrementParams;
 import org.redisson.api.atomic.CompareAndDeleteArgs;
+import org.redisson.api.atomic.LongIncrementArgs;
+import org.redisson.api.atomic.LongIncrementParams;
 import org.redisson.api.listener.IncrByListener;
 import org.redisson.client.codec.LongCodec;
 import org.redisson.client.codec.StringCodec;
@@ -26,7 +29,9 @@ import org.redisson.client.protocol.RedisCommands;
 import org.redisson.client.protocol.RedisStrictCommand;
 import org.redisson.command.CommandAsyncExecutor;
 
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -168,6 +173,56 @@ public class RedissonAtomicLong extends RedissonExpirable implements RAtomicLong
     @Override
     public RFuture<Long> incrementAndGetAsync() {
         return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.INCR, getRawName());
+    }
+
+    @Override
+    public long incrementAndGet(LongIncrementArgs args) {
+        return get(incrementAndGetAsync(args));
+    }
+
+    @Override
+    public RFuture<Long> incrementAndGetAsync(LongIncrementArgs args) {
+        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.INCREX_LONG, createIncrementParams(args));
+    }
+
+    private Object[] createIncrementParams(LongIncrementArgs args) {
+        Objects.requireNonNull(args, "Args can't be null");
+        LongIncrementParams incrementParams = (LongIncrementParams) args;
+
+        List<Object> params = new ArrayList<>();
+        params.add(getRawName());
+        if (incrementParams.getIncrement() != null) {
+            params.add("BYINT");
+            params.add(incrementParams.getIncrement().longValue());
+        }
+        if (incrementParams.getLowerBound() != null) {
+            params.add("LBOUND");
+            params.add(incrementParams.getLowerBound().longValue());
+        }
+        if (incrementParams.getUpperBound() != null) {
+            params.add("UBOUND");
+            params.add(incrementParams.getUpperBound().longValue());
+        }
+        if (incrementParams.isSaturate()) {
+            params.add("SATURATE");
+        }
+        addExpirationParams(incrementParams, params);
+        return params.toArray();
+    }
+
+    private void addExpirationParams(BaseIncrementParams<?> args, List<Object> params) {
+        if (args.getTimeToLive() != null) {
+            params.add("PX");
+            params.add(args.getTimeToLive().toMillis());
+        } else if (args.getExpireAt() != null) {
+            params.add("PXAT");
+            params.add(args.getExpireAt().toEpochMilli());
+        } else if (args.isPersist()) {
+            params.add("PERSIST");
+        }
+        if (args.isExpireIfNotSet()) {
+            params.add("ENX");
+        }
     }
 
     @Override

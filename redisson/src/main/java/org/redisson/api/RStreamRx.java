@@ -16,6 +16,7 @@
 package org.redisson.api;
 
 import io.reactivex.rxjava3.core.Completable;
+import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.core.Single;
 import org.redisson.api.stream.*;
 import org.redisson.client.protocol.StreamEntryStatus;
@@ -105,6 +106,17 @@ public interface RStreamRx<K, V> extends RExpirableRx {
     Single<Map<StreamMessageId, StreamEntryStatus>> ack(StreamAckArgs args);
 
     /**
+     * Releases pending messages back to the group without acknowledging them,
+     * making them available for redelivery.
+     *
+     * Requires <b>Redis 8.8.0 and higher.</b>
+     *
+     * @param args - method arguments object
+     * @return negatively acknowledged messages amount
+     */
+    Single<Long> nack(StreamNackArgs args);
+
+    /**
      * Returns common info about pending messages by group name.
      * 
      * @param groupName - name of group
@@ -126,7 +138,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @return list
      */
     @Deprecated
-    Single<List<PendingEntry>> listPending(String groupName, StreamMessageId startId, StreamMessageId endId, int count);
+    Maybe<List<PendingEntry>> listPending(String groupName, StreamMessageId startId, StreamMessageId endId, int count);
     
     /**
      * Returns list of pending messages by group name and consumer name.
@@ -143,7 +155,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @return list
      */
     @Deprecated
-    Single<List<PendingEntry>> listPending(String groupName, String consumerName, StreamMessageId startId, StreamMessageId endId, int count);
+    Maybe<List<PendingEntry>> listPending(String groupName, String consumerName, StreamMessageId startId, StreamMessageId endId, int count);
 
     /**
      * Returns list of common info about pending messages by group name.
@@ -165,7 +177,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @return list
      */
     @Deprecated
-    Single<List<PendingEntry>> listPending(String groupName, StreamMessageId startId, StreamMessageId endId, long idleTime, TimeUnit idleTimeUnit, int count);
+    Maybe<List<PendingEntry>> listPending(String groupName, StreamMessageId startId, StreamMessageId endId, long idleTime, TimeUnit idleTimeUnit, int count);
 
     /**
      * Returns list of common info about pending messages by group and consumer name.
@@ -188,7 +200,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @return list
      */
     @Deprecated
-    Single<List<PendingEntry>> listPending(String groupName, String consumerName, StreamMessageId startId, StreamMessageId endId, long idleTime, TimeUnit idleTimeUnit, int count);
+    Maybe<List<PendingEntry>> listPending(String groupName, String consumerName, StreamMessageId startId, StreamMessageId endId, long idleTime, TimeUnit idleTimeUnit, int count);
 
     /**
      * Returns list of common info about pending messages by group and consumer name.
@@ -197,7 +209,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param args - method arguments object
      * @return list
      */
-    Single<List<PendingEntry>> listPending(StreamPendingRangeArgs args);
+    Maybe<List<PendingEntry>> listPending(StreamPendingRangeArgs args);
 
     /**
      * Returns stream data of pending messages by group name.
@@ -218,7 +230,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param count - amount of messages
      * @return map
      */
-    Single<Map<StreamMessageId, Map<K, V>>> pendingRange(String groupName, StreamMessageId startId, StreamMessageId endId, long idleTime, TimeUnit idleTimeUnit, int count);
+    Maybe<Map<StreamMessageId, Map<K, V>>> pendingRange(String groupName, StreamMessageId startId, StreamMessageId endId, long idleTime, TimeUnit idleTimeUnit, int count);
 
     /**
      * Returns stream data of pending messages by group and customer name.
@@ -240,7 +252,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param count - amount of messages
      * @return map
      */
-    Single<Map<StreamMessageId, Map<K, V>>> pendingRange(String groupName, String consumerName, StreamMessageId startId, StreamMessageId endId, long idleTime, TimeUnit idleTimeUnit, int count);
+    Maybe<Map<StreamMessageId, Map<K, V>>> pendingRange(String groupName, String consumerName, StreamMessageId startId, StreamMessageId endId, long idleTime, TimeUnit idleTimeUnit, int count);
 
     /**
      * Transfers ownership of pending messages by id to a new consumer 
@@ -253,7 +265,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param ids - stream ids
      * @return stream data mapped by Stream ID
      */
-    Single<Map<StreamMessageId, Map<K, V>>> claim(String groupName, String consumerName, long idleTime, TimeUnit idleTimeUnit, StreamMessageId... ids);
+    Maybe<Map<StreamMessageId, Map<K, V>>> claim(String groupName, String consumerName, long idleTime, TimeUnit idleTimeUnit, StreamMessageId... ids);
 
     /**
      * Transfers ownership of pending messages by id to a new consumer
@@ -297,7 +309,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param args - method arguments object
      * @return stream data mapped by stream name and Stream Message ID
      */
-    Single<Map<String, Map<StreamMessageId, Map<K, V>>>> readGroup(String groupName, String consumerName, StreamMultiReadGroupArgs args);
+    Maybe<Map<String, Map<StreamMessageId, Map<K, V>>>> readGroup(String groupName, String consumerName, StreamMultiReadGroupArgs args);
 
     /**
      * Read stream data from consumer group and current stream only.
@@ -315,7 +327,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param args - method arguments object
      * @return stream data mapped by Stream Message ID
      */
-    Single<Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, StreamReadGroupArgs args);
+    Maybe<Map<StreamMessageId, Map<K, V>>> readGroup(String groupName, String consumerName, StreamReadGroupArgs args);
 
     /**
      * Returns number of entries in stream
@@ -374,7 +386,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param args - method arguments object
      * @return stream data mapped by stream name and Stream Message ID
      */
-    Single<Map<String, Map<StreamMessageId, Map<K, V>>>> read(StreamMultiReadArgs args);
+    Maybe<Map<String, Map<StreamMessageId, Map<K, V>>>> read(StreamMultiReadArgs args);
 
     /**
      * Read stream data from current stream only.
@@ -392,7 +404,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param args - method arguments object
      * @return stream data mapped by Stream Message ID
      */
-    Single<Map<StreamMessageId, Map<K, V>>> read(StreamReadArgs args);
+    Maybe<Map<StreamMessageId, Map<K, V>>> read(StreamReadArgs args);
 
     /**
      * Returns stream data in range by specified start Stream ID (included) and end Stream ID (included).
@@ -402,7 +414,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @return stream data mapped by Stream ID
      */
     @Deprecated
-    Single<Map<StreamMessageId, Map<K, V>>> range(StreamMessageId startId, StreamMessageId endId);
+    Maybe<Map<StreamMessageId, Map<K, V>>> range(StreamMessageId startId, StreamMessageId endId);
 
     /**
      * Returns stream data in range by specified start Stream ID (included) and end Stream ID (included).
@@ -413,7 +425,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @return stream data mapped by Stream ID
      */
     @Deprecated
-    Single<Map<StreamMessageId, Map<K, V>>> range(int count, StreamMessageId startId, StreamMessageId endId);
+    Maybe<Map<StreamMessageId, Map<K, V>>> range(int count, StreamMessageId startId, StreamMessageId endId);
     
     /**
      * Returns stream data in reverse order in range by specified start Stream ID (included) and end Stream ID (included).
@@ -423,7 +435,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @return stream data mapped by Stream ID
      */
     @Deprecated
-    Single<Map<StreamMessageId, Map<K, V>>> rangeReversed(StreamMessageId startId, StreamMessageId endId);
+    Maybe<Map<StreamMessageId, Map<K, V>>> rangeReversed(StreamMessageId startId, StreamMessageId endId);
     
     /**
      * Returns stream data in reverse order in range by specified start Stream ID (included) and end Stream ID (included).
@@ -434,7 +446,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @return stream data mapped by Stream ID
      */
     @Deprecated
-    Single<Map<StreamMessageId, Map<K, V>>> rangeReversed(int count, StreamMessageId startId, StreamMessageId endId);
+    Maybe<Map<StreamMessageId, Map<K, V>>> rangeReversed(int count, StreamMessageId startId, StreamMessageId endId);
 
     /**
      * Returns stream data in range.
@@ -442,7 +454,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param args - method arguments object
      * @return stream data mapped by Stream ID
      */
-    Single<Map<StreamMessageId, Map<K, V>>> range(StreamRangeArgs args);
+    Maybe<Map<StreamMessageId, Map<K, V>>> range(StreamRangeArgs args);
 
     /**
      * Returns stream data in reverse order in range.
@@ -450,7 +462,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param args - method arguments object
      * @return stream data mapped by Stream ID
      */
-    Single<Map<StreamMessageId, Map<K, V>>> rangeReversed(StreamRangeArgs args);
+    Maybe<Map<StreamMessageId, Map<K, V>>> rangeReversed(StreamRangeArgs args);
 
     /**
      * Removes messages by id.
@@ -505,7 +517,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param groupName - name of group
      * @return list of info objects
      */
-    Single<List<StreamConsumer>> listConsumers(String groupName);
+    Maybe<List<StreamConsumer>> listConsumers(String groupName);
     
     /**
      * Returns stream data of pending messages by group name.
@@ -522,7 +534,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param count - amount of messages
      * @return map
      */
-    Single<Map<StreamMessageId, Map<K, V>>> pendingRange(String groupName, StreamMessageId startId, StreamMessageId endId, int count);
+    Maybe<Map<StreamMessageId, Map<K, V>>> pendingRange(String groupName, StreamMessageId startId, StreamMessageId endId, int count);
     
     /**
      * Returns stream data of pending messages by group and customer name.
@@ -540,7 +552,7 @@ public interface RStreamRx<K, V> extends RExpirableRx {
      * @param count - amount of messages
      * @return map
      */
-    Single<Map<StreamMessageId, Map<K, V>>> pendingRange(String groupName, String consumerName, StreamMessageId startId, StreamMessageId endId, int count);
+    Maybe<Map<StreamMessageId, Map<K, V>>> pendingRange(String groupName, String consumerName, StreamMessageId startId, StreamMessageId endId, int count);
 
     /**
      * Adds object event listener

@@ -28,8 +28,8 @@ import java.util.Collection;
  */
 public final class LogHelper {
 
-    private static final int MAX_COLLECTION_LOG_SIZE = Integer.valueOf(System.getProperty("redisson.maxCollectionLogSize", "10"));
-    private static final int MAX_STRING_LOG_SIZE = Integer.valueOf(System.getProperty("redisson.maxStringLogSize", "1000"));
+    private static final int MAX_COLLECTION_LOG_SIZE = Integer.parseInt(System.getProperty("redisson.maxCollectionLogSize", "10"));
+    private static final int MAX_STRING_LOG_SIZE = Integer.parseInt(System.getProperty("redisson.maxStringLogSize", "1000"));
 //    private static final int MAX_BYTEBUF_LOG_SIZE = Integer.valueOf(System.getProperty("redisson.maxByteBufLogSize", "1000"));
 
     private LogHelper() {

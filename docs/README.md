@@ -1,3 +1,7 @@
+---
+description: "Reference guide for Redisson, the Valkey and Redis Java client offering distributed locks, collections, caches, messaging and services on familiar java.util APIs."
+---
+
 # Redisson - Valkey & Redis Java client<br/>Real-Time Data Platform
 
 High-performance async and lock-free Java client for Redis and Valkey based on [Netty](http://netty.io) framework.  
@@ -82,11 +86,11 @@ High-performance async and lock-free Java client for Redis and Valkey based on [
 * 2000+ unit tests  
 
 ## Comparing solutions
-- [Redisson vs Jedis](https://redisson.org/feature-comparison-redisson-vs-jedis.html)
-- [Redisson vs Lettuce](https://redisson.org/feature-comparison-redisson-vs-lettuce.html)
-- [Redis vs Apache Ignite](https://redisson.org/feature-comparison-redis-vs-ignite.html)
-- [Redis vs Hazelcast](https://redisson.org/feature-comparison-redis-vs-hazelcast.html)
-- [Redis vs Ehcache](https://redisson.org/feature-comparison-redis-vs-ehcache.html)
+- [Redisson vs Jedis](https://redisson.pro/blog/feature-comparison-redisson-vs-jedis.html)
+- [Redisson vs Lettuce](https://redisson.pro/blog/feature-comparison-redisson-vs-lettuce.html)
+- [Redis vs Apache Ignite](https://redisson.pro/blog/feature-comparison-redis-vs-ignite.html)
+- [Redis vs Hazelcast](https://redisson.pro/blog/feature-comparison-redis-vs-hazelcast.html)
+- [Redis vs Ehcache](https://redisson.pro/blog/feature-comparison-redis-vs-ehcache.html)
 
 ## Success stories
 

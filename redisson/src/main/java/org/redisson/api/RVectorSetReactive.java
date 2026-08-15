@@ -16,12 +16,14 @@
 package org.redisson.api;
 
 import java.util.List;
+import org.redisson.api.annotation.EmptyAsAbsent;
 import org.redisson.api.vector.VectorAddArgs;
 import org.redisson.api.vector.VectorInfo;
 import org.redisson.api.vector.VectorSimilarArgs;
 import org.redisson.client.protocol.ScoreAttributesEntry;
 import org.redisson.client.protocol.ScoredEntry;
 import org.redisson.codec.JsonCodec;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
@@ -60,6 +62,7 @@ public interface RVectorSetReactive extends RExpirableReactive {
      * @param name element name
      * @return list of vector coordinates
      */
+    @EmptyAsAbsent
     Mono<List<Double>> getVector(String name);
 
     /**
@@ -69,6 +72,7 @@ public interface RVectorSetReactive extends RExpirableReactive {
      * @param name element name
      * @return list of raw vector values
      */
+    @EmptyAsAbsent
     Mono<List<Object>> getRawVector(String name);
 
     /**
@@ -93,6 +97,7 @@ public interface RVectorSetReactive extends RExpirableReactive {
      * @param element element name
      * @return list of neighbor element names
      */
+    @EmptyAsAbsent
     Mono<List<String>> getNeighbors(String element);
 
     /**
@@ -101,6 +106,7 @@ public interface RVectorSetReactive extends RExpirableReactive {
      * @param element element name
      * @return list of neighbor elements with scores
      */
+    @EmptyAsAbsent
     Mono<List<ScoredEntry<String>>> getNeighborEntries(String element);
 
     /**
@@ -116,6 +122,7 @@ public interface RVectorSetReactive extends RExpirableReactive {
      * @param count number of elements to return
      * @return list of random element names
      */
+    @EmptyAsAbsent
     Mono<List<String>> random(int count);
 
     /**
@@ -142,6 +149,7 @@ public interface RVectorSetReactive extends RExpirableReactive {
      * @param args vector similarity arguments
      * @return list of similar element names
      */
+    @EmptyAsAbsent
     Mono<List<String>> getSimilar(VectorSimilarArgs args);
 
     /**
@@ -150,6 +158,7 @@ public interface RVectorSetReactive extends RExpirableReactive {
      * @param args similarity arguments
      * @return list of similar element names with scores
      */
+    @EmptyAsAbsent
     Mono<List<ScoredEntry<String>>> getSimilarEntries(VectorSimilarArgs args);
 
     /**
@@ -158,5 +167,55 @@ public interface RVectorSetReactive extends RExpirableReactive {
      * @param args similarity arguments
      * @return list of similar element names with scores and attributes
      */
+    @EmptyAsAbsent
     Mono<List<ScoreAttributesEntry<String>>> getSimilarEntriesWithAttributes(VectorSimilarArgs args);
+
+    /**
+     * Checks whether an element is a member of this vector set
+     *
+     * @param element element name
+     * @return <code>true</code> if element is a member, <code>false</code> otherwise
+     */
+    Mono<Boolean> contains(String element);
+
+    /**
+     * Returns element names within the specified lexicographical range.
+     * <p>
+     * Each bound is an element name treated as an inclusive bound. Use
+     * <code>-</code> as <code>startElement</code> and <code>+</code> as
+     * <code>endElement</code> to span the whole vector set, or prefix an element
+     * name with <code>[</code> (inclusive) or <code>(</code> (exclusive) to set
+     * the bound explicitly.
+     *
+     * @param startElement lexicographical range start (inclusive)
+     * @param endElement lexicographical range end (inclusive)
+     * @return list of element names within the range
+     */
+    @EmptyAsAbsent
+    Mono<List<String>> range(String startElement, String endElement);
+
+    /**
+     * Returns at most <code>count</code> element names within the specified lexicographical range.
+     * <p>
+     * Each bound is an element name treated as an inclusive bound. Use
+     * <code>-</code> as <code>startElement</code> and <code>+</code> as
+     * <code>endElement</code> to span the whole vector set, or prefix an element
+     * name with <code>[</code> (inclusive) or <code>(</code> (exclusive) to set
+     * the bound explicitly.
+     *
+     * @param startElement lexicographical range start (inclusive)
+     * @param endElement lexicographical range end (inclusive)
+     * @param count maximum number of elements to return
+     * @return list of element names within the range
+     */
+    @EmptyAsAbsent
+    Mono<List<String>> range(String startElement, String endElement, int count);
+
+    /**
+     * Returns a stream over all element names of this vector set in
+     * lexicographical order. Elements are fetched lazily in batches.
+     *
+     * @return stream of element names
+     */
+    Flux<String> iterator();
 }

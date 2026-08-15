@@ -28,7 +28,7 @@ import java.time.Duration;
  * @param <K> type of key
  * @param <V> type of value
  */
-public interface ExMapOptions<T extends ExMapOptions<T, K, V>, K, V> extends CodecOptions<T, Codec> {
+public interface ExMapOptions<T extends ExMapOptions<T, K, V>, K, V> extends CodecOptions<T, Codec>, ReadModeOptions<T> {
 
     /**
      * Defines {@link MapWriter} object which is invoked during write operation.

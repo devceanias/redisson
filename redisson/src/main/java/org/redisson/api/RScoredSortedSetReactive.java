@@ -18,6 +18,7 @@ package org.redisson.api;
 import io.reactivex.rxjava3.core.Maybe;
 import io.reactivex.rxjava3.core.Single;
 import org.redisson.api.RScoredSortedSet.Aggregate;
+import org.redisson.api.annotation.EmptyAsAbsent;
 import org.redisson.client.protocol.RankedEntry;
 import org.redisson.client.protocol.ScoredEntry;
 import reactor.core.publisher.Flux;
@@ -67,6 +68,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param queueNames name of queues
      * @return the tail elements
      */
+    @EmptyAsAbsent
     Mono<List<V>> pollLastFromAny(Duration duration, int count, String... queueNames);
 
     /**
@@ -79,6 +81,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param queueNames name of queues
      * @return the tail elements
      */
+    @EmptyAsAbsent
     Mono<List<V>> pollLastFromAny(int count, String... queueNames);
 
     /**
@@ -91,6 +94,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param queueNames name of queues
      * @return the head entries
      */
+    @EmptyAsAbsent
     Mono<Map<String, Map<V, Double>>> pollLastEntriesFromAny(int count, String... queueNames);
 
     /**
@@ -105,6 +109,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param queueNames name of queues
      * @return the tail entries
      */
+    @EmptyAsAbsent
     Mono<Map<String, Map<V, Double>>> pollLastEntriesFromAny(Duration duration, int count, String... queueNames);
 
     /**
@@ -136,6 +141,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param queueNames name of queues
      * @return the head elements
      */
+    @EmptyAsAbsent
     Mono<List<V>> pollFirstFromAny(Duration duration, int count, String... queueNames);
 
     /**
@@ -148,6 +154,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param queueNames name of queues
      * @return the head elements
      */
+    @EmptyAsAbsent
     Mono<List<V>> pollFirstFromAny(int count, String... queueNames);
 
     /**
@@ -160,6 +167,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param queueNames name of queues
      * @return the head elements
      */
+    @EmptyAsAbsent
     Mono<Map<String, Map<V, Double>>> pollFirstEntriesFromAny(int count, String... queueNames);
 
     /**
@@ -174,6 +182,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param queueNames name of queues
      * @return the head entries
      */
+    @EmptyAsAbsent
     Mono<Map<String, Map<V, Double>>> pollFirstEntriesFromAny(Duration duration, int count, String... queueNames);
 
     /**
@@ -210,6 +219,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param duration how long to wait before giving up
      * @return the head elements
      */
+    @EmptyAsAbsent
     Mono<List<V>> pollFirst(Duration duration, int count);
 
     /**
@@ -244,6 +254,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param duration how long to wait before giving up
      * @return the tail elements
      */
+    @EmptyAsAbsent
     Mono<List<V>> pollLast(Duration duration, int count);
 
     /**
@@ -252,6 +263,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param count - elements amount
      * @return the head elements of this sorted set
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> pollFirst(int count);
 
     /**
@@ -260,6 +272,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param count - elements amount
      * @return the tail elements of this sorted set
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> pollLast(int count);
 
     /**
@@ -389,6 +402,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param count - values amount to return
      * @return random elements
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> random(int count);
 
     /**
@@ -400,6 +414,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param count - entries amount to return
      * @return random entries
      */
+    @EmptyAsAbsent
     Mono<Map<V, Double>> randomEntries(int count);
 
     /**
@@ -797,6 +812,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endIndex - end index
      * @return elements
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> valueRange(int startIndex, int endIndex);
 
     /**
@@ -807,6 +823,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endIndex - end index
      * @return entries
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> entryRange(int startIndex, int endIndex);
 
     /**
@@ -823,6 +840,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endScoreInclusive - end score inclusive
      * @return values
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> valueRange(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive);
 
     /**
@@ -839,6 +857,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endScoreInclusive - end score inclusive
      * @return entries
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> entryRange(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive);
 
     /**
@@ -857,6 +876,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param count - amount of sorted data
      * @return values
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> valueRange(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive, int offset, int count);
 
     /**
@@ -875,6 +895,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param count - amount of sorted data
      * @return entries
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> entryRange(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive, int offset, int count);
 
     /**
@@ -885,6 +906,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endIndex - end index
      * @return elements
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> valueRangeReversed(int startIndex, int endIndex);
     
     /**
@@ -901,6 +923,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endScoreInclusive - end score inclusive
      * @return values
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> valueRangeReversed(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive);
 
     /**
@@ -919,6 +942,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param count - amount of sorted data
      * @return values
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> valueRangeReversed(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive, int offset, int count);
     
     /**
@@ -929,6 +953,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endIndex - end index
      * @return entries
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> entryRangeReversed(int startIndex, int endIndex);
 
     /**
@@ -945,6 +970,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param endScoreInclusive - end score inclusive
      * @return entries
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> entryRangeReversed(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive);
     
     /**
@@ -963,6 +989,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param count - amount of sorted data
      * @return entries
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> entryRangeReversed(double startScore, boolean startScoreInclusive, double endScore, boolean endScoreInclusive, int offset, int count);
     
     /**
@@ -981,6 +1008,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * 
      * @return values
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> readAll();
 
     /**
@@ -1156,6 +1184,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return result of intersection
      */
     @Deprecated
+    @EmptyAsAbsent
     Mono<Collection<V>> readIntersection(String... names);
 
     /**
@@ -1171,6 +1200,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return result of intersection
      */
     @Deprecated
+    @EmptyAsAbsent
     Mono<Collection<V>> readIntersection(Aggregate aggregate, String... names);
 
     /**
@@ -1185,6 +1215,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return result of intersection
      */
     @Deprecated
+    @EmptyAsAbsent
     Mono<Collection<V>> readIntersection(Map<String, Double> nameWithWeight);
 
     /**
@@ -1201,6 +1232,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return result of intersection
      */
     @Deprecated
+    @EmptyAsAbsent
     Mono<Collection<V>> readIntersection(Aggregate aggregate, Map<String, Double> nameWithWeight);
 
     /**
@@ -1212,6 +1244,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param args object
      * @return result of intersection
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> readIntersection(SetIntersectionArgs args);
 
     /**
@@ -1223,6 +1256,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param args object
      * @return result of intersection entries (value and its score)
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> readIntersectionEntries(SetIntersectionArgs args);
 
     /**
@@ -1318,6 +1352,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return result of union
      */
     @Deprecated
+    @EmptyAsAbsent
     Mono<Collection<V>> readUnion(String... names);
 
     /**
@@ -1333,6 +1368,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return result of union
      */
     @Deprecated
+    @EmptyAsAbsent
     Mono<Collection<V>> readUnion(Aggregate aggregate, String... names);
 
     /**
@@ -1347,6 +1383,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return result of union
      */
     @Deprecated
+    @EmptyAsAbsent
     Mono<Collection<V>> readUnion(Map<String, Double> nameWithWeight);
 
     /**
@@ -1363,6 +1400,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @return result of union
      */
     @Deprecated
+    @EmptyAsAbsent
     Mono<Collection<V>> readUnion(Aggregate aggregate, Map<String, Double> nameWithWeight);
 
     /**
@@ -1375,6 +1413,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param args object
      * @return result of union
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> readUnion(SetUnionArgs args);
 
     /**
@@ -1387,6 +1426,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param args object
      * @return result of union entries (value and its score)
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> readUnionEntries(SetUnionArgs args);
 
     /**
@@ -1398,6 +1438,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param names - name of sets
      * @return result of diff
      */
+    @EmptyAsAbsent
     Mono<Collection<V>> readDiff(String... names);
 
     /**
@@ -1409,6 +1450,7 @@ public interface RScoredSortedSetReactive<V> extends RExpirableReactive, RSortab
      * @param names - name of sets
      * @return result of diff entries (value and its score)
      */
+    @EmptyAsAbsent
     Mono<Collection<ScoredEntry<V>>> readDiffEntries(String... names);
 
 

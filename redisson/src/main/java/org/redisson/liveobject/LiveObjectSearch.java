@@ -25,8 +25,10 @@ import org.redisson.api.RSetMultimap;
 import org.redisson.api.condition.Condition;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.liveobject.condition.*;
+import org.redisson.liveobject.misc.ClassUtils;
 import org.redisson.liveobject.resolver.NamingScheme;
 
+import java.lang.reflect.Field;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.function.BiFunction;
@@ -42,6 +44,70 @@ public class LiveObjectSearch {
 
     public LiveObjectSearch(CommandAsyncExecutor commandExecutor) {
         this.commandExecutor = commandExecutor;
+    }
+
+    private boolean isCollectionField(Class<?> entityClass, String fieldName) {
+        try {
+            Field field = ClassUtils.getDeclaredField(entityClass, fieldName);
+            return Collection.class.isAssignableFrom(field.getType()) || field.getType().isArray();
+        } catch (NoSuchFieldException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private Set<Object> collectionRangeFind(Class<?> entityClass, String fieldName, Number threshold, String operator) {
+        NamingScheme namingScheme = commandExecutor.getObjectBuilder().getNamingScheme(entityClass);
+        String indexName = namingScheme.getIndexName(entityClass, fieldName);
+        RSetMultimap<Object, Object> map = new RedissonSetMultimap<>(namingScheme.getCodec(), commandExecutor, indexName);
+        Set<Object> ids = new HashSet<>();
+        for (Object key : map.keySet()) {
+            if (key instanceof Number) {
+                double k = ((Number) key).doubleValue();
+                double v = threshold.doubleValue();
+                boolean matches = false;
+                if ("gt".equals(operator)) {
+                    matches = k > v;
+                } else if ("ge".equals(operator)) {
+                    matches = k >= v;
+                } else if ("lt".equals(operator)) {
+                    matches = k < v;
+                } else if ("le".equals(operator)) {
+                    matches = k <= v;
+                }
+                if (matches) {
+                    ids.addAll(map.get(key));
+                }
+            }
+        }
+        return ids;
+    }
+
+    private boolean handleRangeAnd(Set<Object> allIds, Class<?> entityClass, String fieldName, Number value,
+                                     String operator, Map<RScoredSortedSet<Object>, Number> numericMap,
+                                     NamingScheme ns) {
+        if (isCollectionField(entityClass, fieldName)) {
+            Set<Object> ids = collectionRangeFind(entityClass, fieldName, value, operator);
+            if (allIds.isEmpty()) {
+                allIds.addAll(ids);
+            } else {
+                allIds.retainAll(ids);
+            }
+            return !allIds.isEmpty();
+        }
+        String indexName = ns.getIndexName(entityClass, fieldName);
+        numericMap.put(new RedissonScoredSortedSet<>(ns.getCodec(), commandExecutor, indexName, null), value);
+        return true;
+    }
+
+    private void handleRangeOr(Set<Object> allIds, Class<?> entityClass, String fieldName, Number value,
+                                String operator, Map<RScoredSortedSet<Object>, Number> numericMap,
+                                NamingScheme ns) {
+        if (isCollectionField(entityClass, fieldName)) {
+            allIds.addAll(collectionRangeFind(entityClass, fieldName, value, operator));
+            return;
+        }
+        String indexName = ns.getIndexName(entityClass, fieldName);
+        numericMap.put(new RedissonScoredSortedSet<>(ns.getCodec(), commandExecutor, indexName, null), value);
     }
 
     private Set<Object> traverseAnd(ANDCondition condition, NamingScheme namingScheme, Class<?> entityClass) {
@@ -60,7 +126,7 @@ public class LiveObjectSearch {
                 EQCondition eqc = (EQCondition) cond;
                 
                 String indexName = namingScheme.getIndexName(entityClass, eqc.getName());
-                if (eqc.getValue() instanceof Number) {
+                if (eqc.getValue() instanceof Number && !isCollectionField(entityClass, eqc.getName())) {
                     RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
                     eqNumericNames.put(values, (Number) eqc.getValue());
                 } else {
@@ -71,31 +137,31 @@ public class LiveObjectSearch {
             }
             if (cond instanceof LTCondition) {
                 LTCondition ltc = (LTCondition) cond;
-                
-                String indexName = namingScheme.getIndexName(entityClass, ltc.getName());
-                RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
-                ltNumericNames.put(values, ltc.getValue());
+                if (!handleRangeAnd(allIds, entityClass, ltc.getName(), ltc.getValue(),
+                        "lt", ltNumericNames, namingScheme)) {
+                    return Collections.emptySet();
+                }
             }
             if (cond instanceof LECondition) {
                 LECondition lec = (LECondition) cond;
-                
-                String indexName = namingScheme.getIndexName(entityClass, lec.getName());
-                RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
-                leNumericNames.put(values, lec.getValue());
+                if (!handleRangeAnd(allIds, entityClass, lec.getName(), lec.getValue(),
+                        "le", leNumericNames, namingScheme)) {
+                    return Collections.emptySet();
+                }
             }
             if (cond instanceof GECondition) {
                 GECondition gec = (GECondition) cond;
-                
-                String indexName = namingScheme.getIndexName(entityClass, gec.getName());
-                RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
-                geNumericNames.put(values, gec.getValue());
+                if (!handleRangeAnd(allIds, entityClass, gec.getName(), gec.getValue(),
+                        "ge", geNumericNames, namingScheme)) {
+                    return Collections.emptySet();
+                }
             }
             if (cond instanceof GTCondition) {
                 GTCondition gtc = (GTCondition) cond;
-                
-                String indexName = namingScheme.getIndexName(entityClass, gtc.getName());
-                RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
-                gtNumericNames.put(values, gtc.getValue());
+                if (!handleRangeAnd(allIds, entityClass, gtc.getName(), gtc.getValue(),
+                        "gt", gtNumericNames, namingScheme)) {
+                    return Collections.emptySet();
+                }
             }
             
             if (cond instanceof ORCondition) {
@@ -202,7 +268,7 @@ public class LiveObjectSearch {
                 EQCondition eqc = (EQCondition) cond;
                 
                 String indexName = namingScheme.getIndexName(entityClass, eqc.getName());
-                if (eqc.getValue() instanceof Number) {
+                if (eqc.getValue() instanceof Number && !isCollectionField(entityClass, eqc.getName())) {
                     RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
                     eqNumericNames.put(values, (Number) eqc.getValue());
                 } else {
@@ -213,31 +279,23 @@ public class LiveObjectSearch {
             }
             if (cond instanceof GTCondition) {
                 GTCondition gtc = (GTCondition) cond;
-                
-                String indexName = namingScheme.getIndexName(entityClass, gtc.getName());
-                RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
-                gtNumericNames.put(values, gtc.getValue());
+                handleRangeOr(allIds, entityClass, gtc.getName(), gtc.getValue(),
+                        "gt", gtNumericNames, namingScheme);
             }
             if (cond instanceof GECondition) {
                 GECondition gec = (GECondition) cond;
-                
-                String indexName = namingScheme.getIndexName(entityClass, gec.getName());
-                RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
-                geNumericNames.put(values, gec.getValue());
+                handleRangeOr(allIds, entityClass, gec.getName(), gec.getValue(),
+                        "ge", geNumericNames, namingScheme);
             }
             if (cond instanceof LTCondition) {
                 LTCondition ltc = (LTCondition) cond;
-                
-                String indexName = namingScheme.getIndexName(entityClass, ltc.getName());
-                RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
-                ltNumericNames.put(values, ltc.getValue());
+                handleRangeOr(allIds, entityClass, ltc.getName(), ltc.getValue(),
+                        "lt", ltNumericNames, namingScheme);
             }
             if (cond instanceof LECondition) {
                 LECondition lec = (LECondition) cond;
-                
-                String indexName = namingScheme.getIndexName(entityClass, lec.getName());
-                RScoredSortedSet<Object> values = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
-                leNumericNames.put(values, lec.getValue());
+                handleRangeOr(allIds, entityClass, lec.getName(), lec.getValue(),
+                        "le", leNumericNames, namingScheme);
             }
             if (cond instanceof ANDCondition) {
                 Collection<Object> ids = traverseAnd((ANDCondition) cond, namingScheme, entityClass);
@@ -285,7 +343,7 @@ public class LiveObjectSearch {
             EQCondition c = (EQCondition) condition;
             String indexName = namingScheme.getIndexName(entityClass, c.getName());
             
-            if (c.getValue() instanceof Number) {
+            if (c.getValue() instanceof Number && !isCollectionField(entityClass, c.getName())) {
                 RScoredSortedSet<Object> set = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
                 double v = ((Number) c.getValue()).doubleValue();
                 Collection<Object> gtIds = set.valueRange(v, true, v, true);
@@ -296,24 +354,36 @@ public class LiveObjectSearch {
             }
         } else if (condition instanceof GTCondition) {
             GTCondition c = (GTCondition) condition;
+            if (isCollectionField(entityClass, c.getName())) {
+                return collectionRangeFind(entityClass, c.getName(), c.getValue(), "gt");
+            }
             String indexName = namingScheme.getIndexName(entityClass, c.getName());
             RScoredSortedSet<Object> set = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
             Collection<Object> gtIds = set.valueRange(c.getValue().doubleValue(), false, Double.POSITIVE_INFINITY, false);
             return new HashSet<>(gtIds);
         } else if (condition instanceof GECondition) {
             GECondition c = (GECondition) condition;
+            if (isCollectionField(entityClass, c.getName())) {
+                return collectionRangeFind(entityClass, c.getName(), c.getValue(), "ge");
+            }
             String indexName = namingScheme.getIndexName(entityClass, c.getName());
             RScoredSortedSet<Object> set = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
             Collection<Object> gtIds = set.valueRange(c.getValue().doubleValue(), true, Double.POSITIVE_INFINITY, false);
             return new HashSet<>(gtIds);
         } else if (condition instanceof LTCondition) {
             LTCondition c = (LTCondition) condition;
+            if (isCollectionField(entityClass, c.getName())) {
+                return collectionRangeFind(entityClass, c.getName(), c.getValue(), "lt");
+            }
             String indexName = namingScheme.getIndexName(entityClass, c.getName());
             RScoredSortedSet<Object> set = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
             Collection<Object> gtIds = set.valueRange(Double.NEGATIVE_INFINITY, false, c.getValue().doubleValue(), false);
             return new HashSet<>(gtIds);
         } else if (condition instanceof LECondition) {
             LECondition c = (LECondition) condition;
+            if (isCollectionField(entityClass, c.getName())) {
+                return collectionRangeFind(entityClass, c.getName(), c.getValue(), "le");
+            }
             String indexName = namingScheme.getIndexName(entityClass, c.getName());
             RScoredSortedSet<Object> set = new RedissonScoredSortedSet<>(namingScheme.getCodec(), commandExecutor, indexName, null);
             Collection<Object> gtIds = set.valueRange(Double.NEGATIVE_INFINITY, false, c.getValue().doubleValue(), true);

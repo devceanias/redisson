@@ -26,6 +26,7 @@ import org.redisson.pubsub.PublishSubscribeService;
 
 import java.net.InetSocketAddress;
 import java.util.Collection;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -49,6 +50,13 @@ public interface ConnectionManager {
 
     Collection<MasterSlaveEntry> getEntrySet();
 
+    /**
+     * Returns the next master entry using round-robin strategy.
+     * In single-server mode returns the single master; in cluster mode
+     * distributes across all cluster masters.
+     */
+    MasterSlaveEntry getNextEntry();
+
     MasterSlaveEntry getEntry(String name);
 
     MasterSlaveEntry getEntry(int slot);
@@ -70,6 +78,8 @@ public interface ConnectionManager {
     void shutdown();
 
     void shutdown(long quietPeriod, long timeout, TimeUnit unit);
+
+    CompletionStage<Void> shutdownAsync(long quietPeriod, long timeout, TimeUnit unit);
     
     ServiceManager getServiceManager();
 

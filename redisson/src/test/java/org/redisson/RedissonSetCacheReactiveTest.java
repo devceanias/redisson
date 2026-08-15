@@ -134,7 +134,7 @@ public class RedissonSetCacheReactiveTest extends BaseReactiveTest {
     public void testIteratorSequence() throws InterruptedException {
         RSetCacheReactive<Long> set = redisson.getSetCache("set");
         for (int i = 0; i < 1000; i++) {
-            sync(set.add(Long.valueOf(i)));
+            sync(set.add((long) i));
         }
 
         Thread.sleep(1000);
@@ -142,7 +142,7 @@ public class RedissonSetCacheReactiveTest extends BaseReactiveTest {
         
         Set<Long> setCopy = new HashSet<Long>();
         for (int i = 0; i < 1000; i++) {
-            setCopy.add(Long.valueOf(i));
+            setCopy.add((long) i);
         }
 
         checkIterator(set, setCopy);

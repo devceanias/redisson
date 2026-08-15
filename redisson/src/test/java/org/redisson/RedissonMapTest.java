@@ -12,6 +12,8 @@ import org.redisson.api.RedissonClient;
 import org.redisson.api.map.MapLoader;
 import org.redisson.api.map.MapWriter;
 import org.redisson.api.listener.MapIncrListener;
+import org.redisson.api.listener.MapPutListener;
+import org.redisson.api.listener.MapRemoveListener;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.LongCodec;
 import org.redisson.client.codec.StringCodec;
@@ -27,6 +29,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutionException;
 
 import static org.assertj.core.api.Assertions.assertThat;
+
+import java.util.AbstractMap;
 
 public class RedissonMapTest extends BaseMapTest {
 
@@ -46,13 +50,14 @@ public class RedissonMapTest extends BaseMapTest {
     @Test
     public void testIncrListener() {
         testWithParams(redisson -> {
-            Queue<Integer> nfs = new ConcurrentLinkedQueue<>();
-            RMap<String, Double> map = redisson.getMap("testIncrListener");
+            Queue<String> nfs = new ConcurrentLinkedQueue<>();
+            RMap<String, Double> map = redisson.getMap("testIncrListener", StringCodec.INSTANCE);
 
-            int id = map.addListener((MapIncrListener) name -> nfs.add(1));
+            int id = map.addListener((MapIncrListener) (name, fieldName) -> nfs.add(name + ":" + fieldName));
 
             map.addAndGet("1", 1D);
-            Awaitility.waitAtMost(Durations.ONE_SECOND).untilAsserted(() -> assertThat(nfs).contains(1));
+            Awaitility.waitAtMost(Durations.ONE_SECOND)
+                    .untilAsserted(() -> assertThat(nfs).contains("testIncrListener:1"));
 
             nfs.clear();
             map.removeListener(id);
@@ -62,20 +67,21 @@ public class RedissonMapTest extends BaseMapTest {
                     .during(Duration.ofMillis(500))
                     .atMost(Duration.ofSeconds(1))
                     .until(nfs::isEmpty);
-        }, NOTIFY_KEYSPACE_EVENTS, "Eh");
+        }, NOTIFY_KEYSPACE_EVENTS, "Th");
     }
 
     @Test
     public void testIncrListenerAsync() {
         testWithParams(redisson -> {
-            Queue<Integer> nfs = new ConcurrentLinkedQueue<>();
-            RMap<String, Double> map = redisson.getMap("testIncrListenerAsync");
+            Queue<String> nfs = new ConcurrentLinkedQueue<>();
+            RMap<String, Double> map = redisson.getMap("testIncrListenerAsync", StringCodec.INSTANCE);
 
-            int id = map.addListenerAsync((MapIncrListener) name -> nfs.add(1))
+            int id = map.addListenerAsync((MapIncrListener) (name, fieldName) -> nfs.add(name + ":" + fieldName))
                     .toCompletableFuture().join();
 
             map.addAndGet("1", 1D);
-            Awaitility.waitAtMost(Durations.ONE_SECOND).untilAsserted(() -> assertThat(nfs).contains(1));
+            Awaitility.waitAtMost(Durations.ONE_SECOND)
+                    .untilAsserted(() -> assertThat(nfs).contains("testIncrListenerAsync:1"));
 
             nfs.clear();
             map.removeListenerAsync(id).toCompletableFuture().join();
@@ -85,7 +91,59 @@ public class RedissonMapTest extends BaseMapTest {
                     .during(Duration.ofMillis(500))
                     .atMost(Duration.ofSeconds(1))
                     .until(nfs::isEmpty);
+        }, NOTIFY_KEYSPACE_EVENTS, "Th");
+    }
+
+    @Test
+    public void testPutRemoveListener() {
+        testWithParams(redisson -> {
+            Queue<String> nfs = new ConcurrentLinkedQueue<>();
+            RMap<String, String> map = redisson.getMap("testPutRemoveListener", StringCodec.INSTANCE);
+
+            map.addListener((MapPutListener) (name, fieldName) -> nfs.add("put:" + name + ":" + fieldName));
+            map.addListener((MapRemoveListener) (name, fieldName) -> nfs.add("remove:" + name + ":" + fieldName));
+
+            map.put("1", "2");
+            map.remove("1");
+
+            Awaitility.waitAtMost(Durations.ONE_SECOND)
+                    .untilAsserted(() -> assertThat(nfs)
+                            .contains("put:testPutRemoveListener:1", "remove:testPutRemoveListener:1"));
+        }, NOTIFY_KEYSPACE_EVENTS, "Th");
+    }
+
+    @Test
+    public void testPutListenerWithKeyevent() {
+        testWithParams(redisson -> {
+            Queue<String> nfs = new ConcurrentLinkedQueue<>();
+            RMap<String, String> map = redisson.getMap("testPutListenerWithKeyevent", StringCodec.INSTANCE);
+
+            map.addListener((MapPutListener) (name, fieldName) -> nfs.add(name + ":" + fieldName));
+
+            map.put("1", "2");
+
+            Awaitility.waitAtMost(Durations.ONE_SECOND)
+                    .untilAsserted(() -> assertThat(nfs).contains("testPutListenerWithKeyevent:null"));
         }, NOTIFY_KEYSPACE_EVENTS, "Eh");
+    }
+
+    @Test
+    public void testPutListenerWithKeyeventAndSubkeyevent() {
+        testWithParams(redisson -> {
+            Queue<String> nfs = new ConcurrentLinkedQueue<>();
+            RMap<String, String> map = redisson.getMap("testPutListenerWithKeyeventAndSubkeyevent", StringCodec.INSTANCE);
+
+            map.addListener((MapPutListener) (name, fieldName) -> nfs.add(name + ":" + fieldName));
+
+            map.put("1", "2");
+
+            Awaitility.waitAtMost(Durations.ONE_SECOND)
+                    .untilAsserted(() -> assertThat(nfs).containsExactly("testPutListenerWithKeyeventAndSubkeyevent:1"));
+            Awaitility.await()
+                    .during(Duration.ofMillis(200))
+                    .atMost(Duration.ofSeconds(1))
+                    .untilAsserted(() -> assertThat(nfs).containsExactly("testPutListenerWithKeyeventAndSubkeyevent:1"));
+        }, NOTIFY_KEYSPACE_EVENTS, "TEh");
     }
 
     protected <K, V> MapWriter<K, V> createMapWriter(Map<K, V> map) {
@@ -215,6 +273,37 @@ public class RedissonMapTest extends BaseMapTest {
 
         assertThat(list.size()).isEqualTo(3);
 
+    }
+
+    @Test
+    public void testKeysAsync() {
+        RMap<Integer, String> map = redisson.getMap("simple12");
+        map.put(1, "12");
+        map.put(2, "33");
+        map.put(3, "43");
+
+        List<Integer> list = new ArrayList<>();
+        AsyncIterator<Integer> iterator = map.keysAsync();
+        CompletionStage<Void> f = iterateAll(iterator, list);
+        f.toCompletableFuture().join();
+
+        assertThat(map.size()).isEqualTo(list.size());
+        assertThat(list).containsExactlyInAnyOrder(1, 2, 3);
+    }
+
+    @Test
+    public void testKeysByCountAsync() {
+        RMap<Integer, String> map = redisson.getMap("simple12");
+        map.put(1, "12");
+        map.put(2, "33");
+        map.put(3, "43");
+
+        List<Integer> list = new ArrayList<>();
+        AsyncIterator<Integer> iterator = map.keysAsync(2);
+        CompletionStage<Void> f = iterateAll(iterator, list);
+        f.toCompletableFuture().join();
+
+        assertThat(list).containsExactlyInAnyOrder(1, 2, 3);
     }
 
     @Test
@@ -369,6 +458,15 @@ public class RedissonMapTest extends BaseMapTest {
 
         String val = map.get(2);
         assertThat(val).isEqualTo("33");
+    }
+
+    @Test
+    public void testEntrySetContains() {
+        RMap<String, String> map = redisson.getMap("simple");
+        map.put("1", "2");
+
+        assertThat(map.entrySet().contains(new AbstractMap.SimpleEntry<>("1", "2"))).isTrue();
+        assertThat(map.entrySet().contains(new AbstractMap.SimpleEntry<>("1", "3"))).isFalse();
     }
 
     @Test

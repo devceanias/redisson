@@ -67,10 +67,10 @@ public class RedissonScriptTest extends RedisDockerTest {
     public void testMulti() {
         RLexSortedSet idx2 = redisson.getLexSortedSet("ABCD17436");
         
-        Long l = Long.valueOf("1506524856000");
+        long l = Long.parseLong("1506524856000");
         for (int i = 0; i < 100; i++) {
             String s = "DENY" + "\t" + "TESTREDISSON" + "\t"
-                    + Long.valueOf(l) + "\t" + "helloworld_hongqin";
+                    + l + "\t" + "helloworld_hongqin";
             idx2.add(s);
             l = l + 1;
         }

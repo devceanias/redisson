@@ -22,7 +22,9 @@ import org.redisson.client.codec.Codec;
 import org.redisson.codec.JsonCodec;
 import org.redisson.config.Config;
 
+import java.time.Duration;
 import java.util.Collection;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -36,6 +38,41 @@ import java.util.concurrent.TimeUnit;
  *
  */
 public interface RedissonClient {
+
+    /**
+     * Returns Array instance by <code>name</code>
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @return RArray object
+     */
+    <V> RArray<V> getArray(String name);
+
+    /**
+     * Returns Array instance by <code>name</code>
+     * using provided <code>codec</code> for values.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @param codec codec for values
+     * @return RArray object
+     */
+    <V> RArray<V> getArray(String name, Codec codec);
+
+    /**
+     * Returns Array instance with specified <code>options</code>.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param options instance options
+     * @return RArray object
+     */
+    <V> RArray<V> getArray(PlainOptions options);
 
     /**
      * Returns time-series instance by <code>name</code>
@@ -373,6 +410,30 @@ public interface RedissonClient {
      * @return Buckets object
      */
     RBuckets getBuckets(OptionalOptions options);
+
+    /**
+     * Returns interface for mass operations with Map objects.
+     *
+     * @return Maps object
+     */
+    <K, V> RMaps<K, V> getMaps();
+
+    /**
+     * Returns interface for mass operations with Map objects
+     * using provided codec for keys and values.
+     *
+     * @param codec codec for keys and values
+     * @return Maps object
+     */
+    <K, V> RMaps<K, V> getMaps(Codec codec);
+
+    /**
+     * Returns API for mass operations over Map objects with specified <code>options</code>.
+     *
+     * @param options instance options
+     * @return Maps object
+     */
+    <K, V> RMaps<K, V> getMaps(OptionalOptions options);
 
     /**
      * Returns JSON data holder instance by name using provided codec.
@@ -1534,6 +1595,45 @@ public interface RedissonClient {
     <V> RRingBuffer<V> getRingBuffer(PlainOptions options);
 
     /**
+     * Returns circular (ring) buffer instance by <code>name</code>.
+     * <p>
+     * Provides a fixed-capacity FIFO buffer with random indexed access,
+     * newest-first window reads and server-side aggregation, backed by the
+     * Redis array type.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @return CircularBuffer object
+     */
+    <V> RCircularBuffer<V> getCircularBuffer(String name);
+
+    /**
+     * Returns circular (ring) buffer instance by <code>name</code>
+     * using provided <code>codec</code> for values.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @param codec codec for values
+     * @return CircularBuffer object
+     */
+    <V> RCircularBuffer<V> getCircularBuffer(String name, Codec codec);
+
+    /**
+     * Returns circular (ring) buffer instance with specified <code>options</code>.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param options instance options
+     * @return CircularBuffer object
+     */
+    <V> RCircularBuffer<V> getCircularBuffer(PlainOptions options);
+
+    /**
      * Returns priority unbounded queue instance by name.
      * It uses comparator to sort objects.
      *
@@ -1868,6 +1968,40 @@ public interface RedissonClient {
     RBitSet getBitSet(CommonOptions options);
 
     /**
+     * Returns store of 64-bit vectors mapped by keys,
+     * with bitmask-based filtering.
+     *
+     * @param name name of object
+     * @return BitVectorStore object
+     *
+     * @param <K> type of key
+     */
+    <K> RBitVectorStore<K> getBitVectorStore(String name);
+
+    /**
+     * Returns store of 64-bit vectors mapped by keys,
+     * with bitmask-based filtering.
+     *
+     * @param name name of object
+     * @param codec codec for keys
+     * @return BitVectorStore object
+     *
+     * @param <K> type of key
+     */
+    <K> RBitVectorStore<K> getBitVectorStore(String name, Codec codec);
+
+    /**
+     * Returns store of 64-bit vectors mapped by keys,
+     * with bitmask-based filtering.
+     *
+     * @param options instance options
+     * @return BitVectorStore object
+     *
+     * @param <K> type of key
+     */
+    <K> RBitVectorStore<K> getBitVectorStore(PlainOptions options);
+
+    /**
      * Returns bloom filter instance by name.
      * 
      * @param <V> type of value
@@ -1956,6 +2090,51 @@ public interface RedissonClient {
      * @return CuckooFilter object
      */
     <V> RCuckooFilter<V> getCuckooFilter(PlainOptions options);
+
+    /**
+     * Returns Top-K sketch instance by <code>name</code>.
+     *
+     * @param <V> type of value
+     * @param name name of object
+     * @return TopK object
+     */
+    <V> RTopK<V> getTopK(String name);
+
+    /**
+     * Returns Top-K sketch instance by <code>name</code>
+     * using provided <code>codec</code> for values.
+     *
+     * @param <V> type of value
+     * @param name name of object
+     * @param codec codec for values
+     * @return TopK object
+     */
+    <V> RTopK<V> getTopK(String name, Codec codec);
+
+    /**
+     * Returns Top-K sketch instance with specified <code>options</code>.
+     *
+     * @param <V> type of value
+     * @param options instance options
+     * @return TopK object
+     */
+    <V> RTopK<V> getTopK(PlainOptions options);
+
+    /**
+     * Returns t-digest instance by <code>name</code>.
+     *
+     * @param name name of object
+     * @return TDigest object
+     */
+    RTDigest getTDigest(String name);
+
+    /**
+     * Returns t-digest instance with specified <code>options</code>.
+     *
+     * @param options instance options
+     * @return TDigest object
+     */
+    RTDigest getTDigest(PlainOptions options);
 
     /**
      * Returns id generator instance by name.
@@ -2235,6 +2414,13 @@ public interface RedissonClient {
     void shutdown();
     
     /**
+     * Shutdown Redisson instance asynchronously but <b>NOT</b> Redis server
+     * 
+     * This equates to invoke shutdownAsync(Duration.ZERO, Duration.ofSeconds(2));
+     */
+    CompletionStage<Void> shutdownAsync();
+
+    /**
      * Shuts down Redisson instance but <b>NOT</b> Redis server
      * 
      * Shutdown ensures that no tasks are submitted for <i>'the quiet period'</i>
@@ -2247,6 +2433,19 @@ public interface RedissonClient {
      * @param unit        the unit of {@code quietPeriod} and {@code timeout}
      */
     void shutdown(long quietPeriod, long timeout, TimeUnit unit);
+
+    /**
+     * Shuts down Redisson instance asynchronously but <b>NOT</b> Redis server
+     * 
+     * Shutdown ensures that no tasks are submitted for <i>'the quiet period'</i>
+     * (usually a couple seconds) before it shuts itself down.  If a task is submitted during the quiet period,
+     * it is guaranteed to be accepted and the quiet period will start over.
+     * 
+     * @param quietPeriod the quiet period as described in the documentation
+     * @param timeout     the maximum amount of time to wait until the executor is {@linkplain #shutdown()}
+     *                    regardless if a task was submitted during the quiet period
+     */
+    CompletionStage<Void> shutdownAsync(Duration quietPeriod, Duration timeout);
 
     /**
      * Allows to get configuration provided

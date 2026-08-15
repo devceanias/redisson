@@ -785,6 +785,29 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
     }
 
     @Override
+    public AsyncIterator<K> keysAsync() {
+        return keysAsync(10);
+    }
+
+    @Override
+    public AsyncIterator<K> keysAsync(int count) {
+        AsyncIterator<K> asyncIterator = new BaseAsyncIterator<K, Map.Entry<Object, Object>>() {
+
+            @Override
+            protected RFuture<ScanResult<Map.Entry<Object, Object>>> iterator(RedisClient client, String nextItPos) {
+                return scanIteratorAsync(name, client, nextItPos, null, count);
+            }
+
+            @Override
+            protected K getValue(java.util.Map.Entry<Object, Object> entry) {
+                return (K) entry.getKey();
+            }
+
+        };
+        return new CompositeAsyncIterator<>(Arrays.asList(asyncIterator), 0);
+    }
+
+    @Override
     public Set<java.util.Map.Entry<K, V>> entrySet() {
         return entrySet(null);
     }
@@ -1835,7 +1858,7 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
             Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
             Object key = e.getKey();
             V value = get(key);
-            return value != null && value.equals(e);
+            return value != null && value.equals(e.getValue());
         }
 
         @Override
@@ -1885,13 +1908,16 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
     @Override
     public int addListener(ObjectListener listener) {
         if (listener instanceof MapPutListener) {
-            return addListener("__keyevent@*:hset", (MapPutListener) listener, MapPutListener::onPut);
+            return addMapFieldListener("__subkeyevent@*:hset", "__keyevent@*:hset",
+                    (MapPutListener) listener, MapPutListener::onPut);
         }
         if (listener instanceof MapIncrListener) {
-            return addListener("__keyevent@*:hincrbyfloat", (MapIncrListener) listener, MapIncrListener::onIncrement);
+            return addMapFieldListener("__subkeyevent@*:hincrbyfloat", "__keyevent@*:hincrbyfloat",
+                    (MapIncrListener) listener, MapIncrListener::onIncrement);
         }
         if (listener instanceof MapRemoveListener) {
-            return addListener("__keyevent@*:hdel", (MapRemoveListener) listener, MapRemoveListener::onRemove);
+            return addMapFieldListener("__subkeyevent@*:hdel", "__keyevent@*:hdel",
+                    (MapRemoveListener) listener, MapRemoveListener::onRemove);
         }
         if (listener instanceof TrackingListener) {
             return addTrackingListener((TrackingListener) listener);
@@ -1903,13 +1929,16 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
     @Override
     public RFuture<Integer> addListenerAsync(ObjectListener listener) {
         if (listener instanceof MapPutListener) {
-            return addListenerAsync("__keyevent@*:hset", (MapPutListener) listener, MapPutListener::onPut);
+            return addMapFieldListenerAsync("__subkeyevent@*:hset", "__keyevent@*:hset",
+                    (MapPutListener) listener, MapPutListener::onPut);
         }
         if (listener instanceof MapIncrListener) {
-            return addListenerAsync("__keyevent@*:hincrbyfloat", (MapIncrListener) listener, MapIncrListener::onIncrement);
+            return addMapFieldListenerAsync("__subkeyevent@*:hincrbyfloat", "__keyevent@*:hincrbyfloat",
+                    (MapIncrListener) listener, MapIncrListener::onIncrement);
         }
         if (listener instanceof MapRemoveListener) {
-            return addListenerAsync("__keyevent@*:hdel", (MapRemoveListener) listener, MapRemoveListener::onRemove);
+            return addMapFieldListenerAsync("__subkeyevent@*:hdel", "__keyevent@*:hdel",
+                    (MapRemoveListener) listener, MapRemoveListener::onRemove);
         }
         if (listener instanceof TrackingListener) {
             return addTrackingListenerAsync((TrackingListener) listener);
@@ -1921,13 +1950,18 @@ public class RedissonMap<K, V> extends RedissonExpirable implements RMap<K, V> {
     @Override
     public void removeListener(int listenerId) {
         removeTrackingListener(listenerId);
-        removeListener(listenerId, "__keyevent@*:hset", "__keyevent@*:hincrbyfloat", "__keyevent@*:hdel");
+        removeListener(listenerId, "__subkeyevent@*:hset", "__keyevent@*:hset",
+                "__subkeyevent@*:hincrbyfloat", "__keyevent@*:hincrbyfloat",
+                "__subkeyevent@*:hdel", "__keyevent@*:hdel");
         super.removeListener(listenerId);
     }
 
     @Override
     public RFuture<Void> removeListenerAsync(int listenerId) {
-        return removeListenerAsync(removeTrackingListenerAsync(listenerId), listenerId, "__keyevent@*:hset", "__keyevent@*:hdel");
+        return removeListenerAsync(removeTrackingListenerAsync(listenerId), listenerId,
+                "__subkeyevent@*:hset", "__keyevent@*:hset",
+                "__subkeyevent@*:hincrbyfloat", "__keyevent@*:hincrbyfloat",
+                "__subkeyevent@*:hdel", "__keyevent@*:hdel");
     }
 
 }

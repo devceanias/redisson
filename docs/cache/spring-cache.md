@@ -17,7 +17,7 @@ Redisson provides various Spring Cache managers with multiple important features
 
     Allows to define `time to live` or `max idle time` parameters per map entry. Eviction is done on Redisson side through a custom scheduled task which removes expired entries using Lua script. Eviction task is started once per unique object name at the moment of getting Map instance. If instance isn't used and has expired entries it should be get again to start the eviction process. This leads to extra Redis or Valkey calls and eviction task per unique map object name.  
 
-    Entries are cleaned time to time by `org.redisson.eviction.EvictionScheduler`. By default, it removes 100 expired entries at a time. This can be changed through [cleanUpKeysAmount](../configuration.md) setting. Task launch time tuned automatically and depends on expired entries amount deleted in previous time and varies between 5 second to 30 minutes by default. This time interval can be changed through [minCleanUpDelay](../configuration.md) and [maxCleanUpDelay](../configuration.md). For example, if clean task deletes 100 entries each time it will be executed every 5 seconds (minimum execution delay). But if current expired entries amount is lower than previous one then execution delay will be increased by 1.5 times and decreased otherwise.  
+    Entries are cleaned time to time by `org.redisson.eviction.EvictionScheduler`. By default, it removes 100 expired entries at a time. This can be changed through [cleanUpKeysAmount](configuration.md) setting. Task launch time tuned automatically and depends on expired entries amount deleted in previous time and varies between 5 second to 30 minutes by default. This time interval can be changed through [minCleanUpDelay](configuration.md) and [maxCleanUpDelay](configuration.md). For example, if clean task deletes 100 entries each time it will be executed every 5 seconds (minimum execution delay). But if current expired entries amount is lower than previous one then execution delay will be increased by 1.5 times and decreased otherwise.  
 
     Available implementations:  
 
@@ -128,6 +128,25 @@ LocalCachedMapOptions options = LocalCachedMapOptions.defaults()
 
     <div class="grid cards" markdown>
 
+    -   **Community Edition**
+
+        Maven
+
+        ```xml  
+        <dependency>
+        	<groupId>org.redisson</groupId>
+        	<artifactId>redisson-spring-cache</artifactId>
+        	<version>xVERSIONx</version>
+        </dependency>
+        ```
+
+        Gradle
+
+        ```groovy
+        compile 'org.redisson:redisson-spring-cache:xVERSIONx'
+        ```
+
+
     -   **Redisson PRO**
 
         Maven
@@ -147,25 +166,6 @@ LocalCachedMapOptions options = LocalCachedMapOptions.defaults()
         ```
 
         [License key configuration](configuration.md/#license-key-configuration)
-
-
-    -   **Community Edition**
-
-        Maven
-
-        ```xml  
-        <dependency>
-        	<groupId>org.redisson</groupId>
-        	<artifactId>redisson-spring-cache</artifactId>
-        	<version>xVERSIONx</version>
-        </dependency>
-        ```
-
-        Gradle
-
-        ```groovy
-        compile 'org.redisson:redisson-spring-cache:xVERSIONx'
-        ```
 
     </div>
 

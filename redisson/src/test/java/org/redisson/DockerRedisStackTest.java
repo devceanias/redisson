@@ -111,7 +111,7 @@ public class DockerRedisStackTest {
 
                         if (mappedPort != null
                                 && s.getIpAddress().equals(uri.getHost())) {
-                            return new RedisURI(uri.getScheme(), "127.0.0.1", Integer.valueOf(mappedPort[0].getHostPortSpec()));
+                            return new RedisURI(uri.getScheme(), "127.0.0.1", Integer.parseInt(mappedPort[0].getHostPortSpec()));
                         }
                     }
                     return uri;

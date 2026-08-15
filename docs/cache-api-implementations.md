@@ -1,4 +1,8 @@
-{% include 'cache/Spring-cache.md' %}
+---
+description: "Cache API implementations for Valkey and Redis in Java, covering Hibernate second-level cache, JCache JSR-107, Spring Cache, MyBatis and Micronaut."
+---
+
+{% include 'cache/spring-cache.md' %}
 
 ## Hibernate Cache
 
@@ -67,50 +71,6 @@ Redisson provides various Hibernate Cache factories including those with feature
 
     <div class="grid cards" markdown>
 
-    -   **Redisson PRO**
-
-        Maven
-
-        ```xml
-        <dependency>
-            <groupId>pro.redisson</groupId>
-            <!-- for Hibernate v4.x -->
-            <artifactId>redisson-hibernate-4</artifactId>
-            <!-- for Hibernate v5.0.x - v5.1.x -->
-            <artifactId>redisson-hibernate-5</artifactId>
-            <!-- for Hibernate v5.2.x -->
-            <artifactId>redisson-hibernate-52</artifactId>
-            <!-- for Hibernate v5.3.3+ - v5.6.x -->
-            <artifactId>redisson-hibernate-53</artifactId>
-            <!-- for Hibernate v6.0.2+ - v6.x.x -->
-            <artifactId>redisson-hibernate-6</artifactId>
-            <!-- for Hibernate v7.0.x - 7.1.x -->
-            <artifactId>redisson-hibernate-7</artifactId>
-            <!-- for Hibernate v7.2.x - 7.3.x -->
-            <artifactId>redisson-hibernate-72</artifactId>
-            <version>xVERSIONx</version>
-        </dependency>
-        ```
-
-        Gradle
-
-        ```groovy
-        // for Hibernate v4.x
-        compile 'pro.redisson:redisson-hibernate-4:xVERSIONx'
-        // for Hibernate v5.0.x - v5.1.x
-        compile 'pro.redisson:redisson-hibernate-5:xVERSIONx'
-        // for Hibernate v5.2.x
-        compile 'pro.redisson:redisson-hibernate-52:xVERSIONx'
-        // for Hibernate v5.3.3+ - v5.6.x
-        compile 'pro.redisson:redisson-hibernate-53:xVERSIONx'
-        // for Hibernate v6.0.2+ - v6.x.x
-        compile 'pro.redisson:redisson-hibernate-6:xVERSIONx'
-        // for Hibernate v7.0.x - 7.1.x
-        compile 'pro.redisson:redisson-hibernate-7:xVERSIONx'
-        // for Hibernate v7.2.x - 7.3.x
-        compile 'pro.redisson:redisson-hibernate-72:xVERSIONx'
-        ```
-
     -   **Community Edition**
 
         Maven
@@ -153,6 +113,50 @@ Redisson provides various Hibernate Cache factories including those with feature
         compile 'org.redisson:redisson-hibernate-7:xVERSIONx'
         // for Hibernate v7.2.x - 7.3.x
         compile 'org.redisson:redisson-hibernate-72:xVERSIONx'
+        ```
+
+    -   **Redisson PRO**
+
+        Maven
+
+        ```xml
+        <dependency>
+            <groupId>pro.redisson</groupId>
+            <!-- for Hibernate v4.x -->
+            <artifactId>redisson-hibernate-4</artifactId>
+            <!-- for Hibernate v5.0.x - v5.1.x -->
+            <artifactId>redisson-hibernate-5</artifactId>
+            <!-- for Hibernate v5.2.x -->
+            <artifactId>redisson-hibernate-52</artifactId>
+            <!-- for Hibernate v5.3.3+ - v5.6.x -->
+            <artifactId>redisson-hibernate-53</artifactId>
+            <!-- for Hibernate v6.0.2+ - v6.x.x -->
+            <artifactId>redisson-hibernate-6</artifactId>
+            <!-- for Hibernate v7.0.x - 7.1.x -->
+            <artifactId>redisson-hibernate-7</artifactId>
+            <!-- for Hibernate v7.2.x - 7.3.x -->
+            <artifactId>redisson-hibernate-72</artifactId>
+            <version>xVERSIONx</version>
+        </dependency>
+        ```
+
+        Gradle
+
+        ```groovy
+        // for Hibernate v4.x
+        compile 'pro.redisson:redisson-hibernate-4:xVERSIONx'
+        // for Hibernate v5.0.x - v5.1.x
+        compile 'pro.redisson:redisson-hibernate-5:xVERSIONx'
+        // for Hibernate v5.2.x
+        compile 'pro.redisson:redisson-hibernate-52:xVERSIONx'
+        // for Hibernate v5.3.3+ - v5.6.x
+        compile 'pro.redisson:redisson-hibernate-53:xVERSIONx'
+        // for Hibernate v6.0.2+ - v6.x.x
+        compile 'pro.redisson:redisson-hibernate-6:xVERSIONx'
+        // for Hibernate v7.0.x - 7.1.x
+        compile 'pro.redisson:redisson-hibernate-7:xVERSIONx'
+        // for Hibernate v7.2.x - 7.3.x
+        compile 'pro.redisson:redisson-hibernate-72:xVERSIONx'
         ```
 
     </div>
@@ -1111,24 +1115,6 @@ Redisson provides multiple MyBatis Cache implementations which support features 
 
     <div class="grid cards" markdown>
 
-    -   **Redisson PRO**
-
-        Maven
-
-        ```xml  
-        <dependency>
-             <groupId>pro.redisson</groupId>
-             <artifactId>redisson-mybatis</artifactId>
-             <version>xVERSIONx</version>
-        </dependency>
-        ```
-
-        Gradle
-
-        ```groovy
-        compile 'pro.redisson:redisson-mybatis:xVERSIONx'
-        ```
-
     -   **Community Edition**
 
         Maven
@@ -1145,6 +1131,24 @@ Redisson provides multiple MyBatis Cache implementations which support features 
 
         ```groovy
         compile 'org.redisson:redisson-mybatis:xVERSIONx'
+        ```
+
+    -   **Redisson PRO**
+
+        Maven
+
+        ```xml  
+        <dependency>
+             <groupId>pro.redisson</groupId>
+             <artifactId>redisson-mybatis</artifactId>
+             <version>xVERSIONx</version>
+        </dependency>
+        ```
+
+        Gradle
+
+        ```groovy
+        compile 'pro.redisson:redisson-mybatis:xVERSIONx'
         ```
 
     </div>
@@ -1282,7 +1286,7 @@ Redisson provides various [Quarkus Cache](https://quarkus.io/guides/cache) imple
 
     Allows to define `time to live` or `max idle time` parameters per map entry. Eviction is executed by Redisson through a custom scheduled task which removes expired entries using Lua script on Redis or Valkey side. Eviction task is started once per unique object name at the moment of getting Map instance. If instance isn't used and has expired entries it should be get again to start the eviction process. This leads to extra Redis or Valkey calls and eviction task per unique map object name. 
 
-    Entries are cleaned time to time by `org.redisson.eviction.EvictionScheduler`. By default, it removes 100 expired entries at a time. This can be changed through [cleanUpKeysAmount](../configuration.md) setting. Task launch time tuned automatically and depends on expired entries amount deleted in previous time and varies between 5 second to 30 minutes by default. This time interval can be changed through [minCleanUpDelay](../configuration.md) and [maxCleanUpDelay](../configuration.md). For example, if clean task deletes 100 entries each time it will be executed every 5 seconds (minimum execution delay). But if current expired entries amount is lower than previous one then execution delay will be increased by 1.5 times and decreased otherwise.
+    Entries are cleaned time to time by `org.redisson.eviction.EvictionScheduler`. By default, it removes 100 expired entries at a time. This can be changed through [cleanUpKeysAmount](configuration.md) setting. Task launch time tuned automatically and depends on expired entries amount deleted in previous time and varies between 5 second to 30 minutes by default. This time interval can be changed through [minCleanUpDelay](configuration.md) and [maxCleanUpDelay](configuration.md). For example, if clean task deletes 100 entries each time it will be executed every 5 seconds (minimum execution delay). But if current expired entries amount is lower than previous one then execution delay will be increased by 1.5 times and decreased otherwise.
 
     Available implementations:
 
@@ -1327,26 +1331,6 @@ Redisson provides various [Quarkus Cache](https://quarkus.io/guides/cache) imple
 
     <div class="grid cards" markdown>
 
-    -   **Redisson PRO**
-
-        Maven
-
-        ```xml  
-        <dependency>
-            <groupId>pro.redisson</groupId>
-            <!-- for Quarkus v3.x.x -->
-            <artifactId>redisson-quarkus-30-cache</artifactId>
-            <version>xVERSIONx</version>
-        </dependency>
-        ```
-
-        Gradle
-
-        ```groovy
-        // for Quarkus v3.x.x
-        compile 'pro.redisson:redisson-quarkus-30-cache:xVERSIONx'
-        ```
-
     -   **Community Edition**
 
         Maven
@@ -1365,6 +1349,26 @@ Redisson provides various [Quarkus Cache](https://quarkus.io/guides/cache) imple
         ```groovy
         // for Quarkus v3.x.x
         compile 'org.redisson:redisson-quarkus-30-cache:xVERSIONx'
+        ```
+
+    -   **Redisson PRO**
+
+        Maven
+
+        ```xml  
+        <dependency>
+            <groupId>pro.redisson</groupId>
+            <!-- for Quarkus v3.x.x -->
+            <artifactId>redisson-quarkus-30-cache</artifactId>
+            <version>xVERSIONx</version>
+        </dependency>
+        ```
+
+        Gradle
+
+        ```groovy
+        // for Quarkus v3.x.x
+        compile 'pro.redisson:redisson-quarkus-30-cache:xVERSIONx'
         ```
 
     </div>
@@ -1506,4 +1510,4 @@ quarkus.cache.redisson.sampleCache.time-to-live=10s
 quarkus.cache.redisson.sampleCache.max-idle=5s
 ```
 
-{% include 'cache/Micronaut-cache.md' %}
+{% include 'cache/micronaut-cache.md' %}

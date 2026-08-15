@@ -62,6 +62,28 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
+    public <V> RArrayRx<V> getArray(String name) {
+        RedissonArray<V> array = new RedissonArray<>(commandExecutor, name);
+        return RxProxyBuilder.create(commandExecutor, array,
+                new RedissonArrayRx<>(array), RArrayRx.class);
+    }
+
+    @Override
+    public <V> RArrayRx<V> getArray(String name, Codec codec) {
+        RedissonArray<V> array = new RedissonArray<>(codec, commandExecutor, name);
+        return RxProxyBuilder.create(commandExecutor, array,
+                new RedissonArrayRx<>(array), RArrayRx.class);
+    }
+
+    @Override
+    public <V> RArrayRx<V> getArray(PlainOptions options) {
+        PlainParams params = (PlainParams) options;
+        RedissonArray<V> array = new RedissonArray<>(params.getCodec(), commandExecutor.copy(params), params.getName());
+        return RxProxyBuilder.create(commandExecutor, array,
+                new RedissonArrayRx<>(array), RArrayRx.class);
+    }
+
+    @Override
     public <K, V> RStreamRx<K, V> getStream(String name) {
         return RxProxyBuilder.create(commandExecutor, new RedissonStream<K, V>(commandExecutor, name), RStreamRx.class);
     }
@@ -384,6 +406,28 @@ public final class RedissonRx implements RedissonRxClient {
         OptionalParams params = (OptionalParams) options;
         CommandRxExecutor ce = commandExecutor.copy(params);
         return RxProxyBuilder.create(commandExecutor, new RedissonBuckets(params.getCodec(), ce), RBucketsRx.class);
+    }
+
+    @Override
+    public <K, V> RMapsRx<K, V> getMaps() {
+        return createMaps(new RedissonMaps<>(commandExecutor), commandExecutor);
+    }
+
+    @Override
+    public <K, V> RMapsRx<K, V> getMaps(Codec codec) {
+        return createMaps(new RedissonMaps<>(codec, commandExecutor), commandExecutor);
+    }
+
+    @Override
+    public <K, V> RMapsRx<K, V> getMaps(OptionalOptions options) {
+        OptionalParams params = (OptionalParams) options;
+        CommandRxExecutor ce = commandExecutor.copy(params);
+        return createMaps(new RedissonMaps<>(params.getCodec(), ce), ce);
+    }
+
+    private <K, V> RMapsRx<K, V> createMaps(RMaps<K, V> maps, CommandRxExecutor ce) {
+        return RxProxyBuilder.create(commandExecutor, maps,
+                                        new RedissonMapsRx<>(maps, ce), RMapsRx.class);
     }
 
     @Override
@@ -809,6 +853,26 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
+    public <V> RCircularBufferRx<V> getCircularBuffer(String name) {
+        return RxProxyBuilder.create(commandExecutor,
+                new RedissonCircularBuffer<V>(commandExecutor, name), RCircularBufferRx.class);
+    }
+
+    @Override
+    public <V> RCircularBufferRx<V> getCircularBuffer(String name, Codec codec) {
+        return RxProxyBuilder.create(commandExecutor,
+                new RedissonCircularBuffer<V>(codec, commandExecutor, name), RCircularBufferRx.class);
+    }
+
+    @Override
+    public <V> RCircularBufferRx<V> getCircularBuffer(PlainOptions options) {
+        PlainParams params = (PlainParams) options;
+        CommandRxExecutor ce = commandExecutor.copy(params);
+        return RxProxyBuilder.create(commandExecutor,
+                new RedissonCircularBuffer<V>(params.getCodec(), ce, params.getName()), RCircularBufferRx.class);
+    }
+
+    @Override
     public <V> RBlockingQueueRx<V> getBlockingQueue(String name) {
         RedissonBlockingQueue<V> queue = new RedissonBlockingQueue<V>(commandExecutor, name, null);
         return RxProxyBuilder.create(commandExecutor, queue, 
@@ -1029,6 +1093,43 @@ public final class RedissonRx implements RedissonRxClient {
     }
 
     @Override
+    public RTDigestRx getTDigest(String name) {
+        return RxProxyBuilder.create(commandExecutor,
+                new RedissonTDigest(commandExecutor, name),
+                RTDigestRx.class);
+    }
+
+    @Override
+    public RTDigestRx getTDigest(PlainOptions options) {
+        PlainParams params = (PlainParams) options;
+        CommandRxExecutor ca = commandExecutor.copy(params);
+        return RxProxyBuilder.create(commandExecutor,
+                new RedissonTDigest(ca, params.getName()),
+                RTDigestRx.class);
+    }
+
+    @Override
+    public <V> RTopKRx<V> getTopK(String name) {
+        return getTopK(name, null);
+    }
+
+    @Override
+    public <V> RTopKRx<V> getTopK(String name, Codec codec) {
+        return RxProxyBuilder.create(commandExecutor,
+                new RedissonTopK<V>(codec, commandExecutor, name),
+                RTopKRx.class);
+    }
+
+    @Override
+    public <V> RTopKRx<V> getTopK(PlainOptions options) {
+        PlainParams params = (PlainParams) options;
+        CommandRxExecutor ca = commandExecutor.copy(params);
+        return RxProxyBuilder.create(commandExecutor,
+                new RedissonTopK<V>(params.getCodec(), ca, params.getName()),
+                RTopKRx.class);
+    }
+
+    @Override
     public RFunctionRx getFunction() {
         return RxProxyBuilder.create(commandExecutor, new RedissonFuction(commandExecutor), RFunctionRx.class);
     }
@@ -1064,14 +1165,18 @@ public final class RedissonRx implements RedissonRxClient {
 
     @Override
     public RVectorSetRx getVectorSet(String name) {
-        return RxProxyBuilder.create(commandExecutor, new RedissonVectorSet(commandExecutor, name), RVectorSetRx.class);
+        RedissonVectorSet set = new RedissonVectorSet(commandExecutor, name);
+        return RxProxyBuilder.create(commandExecutor, set,
+                new RedissonVectorSetRx(commandExecutor, set), RVectorSetRx.class);
     }
 
     @Override
     public RVectorSetRx getVectorSet(CommonOptions options) {
         CommonParams params = (CommonParams) options;
         CommandRxExecutor ce = commandExecutor.copy(params);
-        return RxProxyBuilder.create(commandExecutor, new RedissonVectorSet(ce, params.getName()), RVectorSetRx.class);
+        RedissonVectorSet set = new RedissonVectorSet(ce, params.getName());
+        return RxProxyBuilder.create(ce, set,
+                new RedissonVectorSetRx(ce, set), RVectorSetRx.class);
     }
 
     @Override

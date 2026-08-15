@@ -18,7 +18,9 @@ package org.redisson;
 import io.netty.buffer.ByteBuf;
 import io.netty.util.ReferenceCountUtil;
 import org.redisson.api.*;
+import org.redisson.api.listener.MessageListener;
 import org.redisson.api.listener.SetAddListener;
+import org.redisson.api.listener.SetExpiredListener;
 import org.redisson.api.listener.SetRemoveListener;
 import org.redisson.api.listener.TrackingListener;
 import org.redisson.api.mapreduce.RCollectionMapReduce;
@@ -26,7 +28,10 @@ import org.redisson.client.RedisClient;
 import org.redisson.client.codec.Codec;
 import org.redisson.client.codec.IntegerCodec;
 import org.redisson.client.codec.LongCodec;
+import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommands;
+import org.redisson.codec.BaseEventCodec;
+import org.redisson.codec.SetCacheEventCodec;
 import org.redisson.command.CommandAsyncExecutor;
 import org.redisson.eviction.EvictionScheduler;
 import org.redisson.iterator.BaseAsyncIterator;
@@ -37,6 +42,8 @@ import org.redisson.misc.CompositeAsyncIterator;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -62,11 +69,13 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
 
     final RedissonClient redisson;
     final EvictionScheduler evictionScheduler;
+    final String publishCommand;
 
     public RedissonSetCache(EvictionScheduler evictionScheduler, CommandAsyncExecutor commandExecutor, String name, RedissonClient redisson) {
         super(commandExecutor, name);
+        this.publishCommand = commandExecutor.getConnectionManager().getSubscribeService().getPublishCommand();
         if (evictionScheduler != null) {
-            evictionScheduler.schedule(getRawName(), 0);
+            evictionScheduler.scheduleSetCache(getRawName(), getExpiredChannelName(), publishCommand);
         }
         this.evictionScheduler = evictionScheduler;
         this.redisson = redisson;
@@ -74,12 +83,18 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
 
     public RedissonSetCache(Codec codec, EvictionScheduler evictionScheduler, CommandAsyncExecutor commandExecutor, String name, RedissonClient redisson) {
         super(codec, commandExecutor, name);
+        this.publishCommand = commandExecutor.getConnectionManager().getSubscribeService().getPublishCommand();
         if (evictionScheduler != null) {
-            evictionScheduler.schedule(getRawName(), 0);
+            evictionScheduler.scheduleSetCache(getRawName(), getExpiredChannelName(), publishCommand);
         }
         this.evictionScheduler = evictionScheduler;
         this.redisson = redisson;
     }
+
+    String getExpiredChannelName() {
+        return prefixName("redisson_set_cache_expired", getRawName());
+    }
+
     
     @Override
     public <KOut, VOut> RCollectionMapReduce<V, KOut, VOut> mapReduce() {
@@ -454,6 +469,17 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
         if (evictionScheduler != null) {
             evictionScheduler.remove(getRawName());
         }
+
+        String expiredChannelName = getExpiredChannelName();
+        Collection<Integer> ids = getListenerIdsByName(expiredChannelName);
+        if (!ids.isEmpty()) {
+            RTopic topic = getTopic(expiredChannelName);
+            for (Integer listenerId : new ArrayList<>(ids)) {
+                removeListenerId(expiredChannelName, listenerId);
+                topic.removeListener(listenerId);
+            }
+        }
+
         removeListeners();
     }
 
@@ -620,6 +646,36 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
     @Override
     public Integer countIntersection(int limit, String... names) {
         return get(countIntersectionAsync(limit, names));
+    }
+
+    @Override
+    public Integer countUnion(String... names) {
+        return get(countUnionAsync(names));
+    }
+
+    @Override
+    public Integer countUnion(int limit, String... names) {
+        return get(countUnionAsync(limit, names));
+    }
+
+    @Override
+    public Integer countUnionApprox(String... names) {
+        return get(countUnionApproxAsync(names));
+    }
+
+    @Override
+    public Integer countUnionApprox(int limit, String... names) {
+        return get(countUnionApproxAsync(limit, names));
+    }
+
+    @Override
+    public Integer countDiff(String... names) {
+        return get(countDiffAsync(names));
+    }
+
+    @Override
+    public Integer countDiff(int limit, String... names) {
+        return get(countDiffAsync(limit, names));
     }
 
     @Override
@@ -866,6 +922,88 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
                         "return res;",
                          keys,
                 System.currentTimeMillis(), 92233720368547758L, names.length+1, limit);
+    }
+
+    @Override
+    public RFuture<Integer> countUnionAsync(String... names) {
+        return countUnionAsync(0, names);
+    }
+
+    @Override
+    public RFuture<Integer> countUnionAsync(int limit, String... names) {
+        List<Object> keys = new ArrayList<>();
+        keys.add(getRawName());
+        keys.addAll(map(names));
+
+        return commandExecutor.evalReadAsync(getRawName(), IntegerCodec.INSTANCE, RedisCommands.EVAL_INTEGER,
+                   "local limit = tonumber(ARGV[3]);" +
+                         "local found = {};" +
+                         "local count = 0;" +
+                         "for i = 1, #KEYS, 1 do " +
+                             "local values = redis.call('zrangebyscore', KEYS[i], ARGV[1], ARGV[2]);" +
+                             "for j = 1, #values, 1 do " +
+                                 "if found[values[j]] == nil then " +
+                                     "found[values[j]] = true;" +
+                                     "count = count + 1;" +
+                                     "if limit > 0 and count >= limit then " +
+                                         "return count;" +
+                                     "end;" +
+                                 "end;" +
+                             "end;" +
+                        "end;" +
+                        "return count;",
+                        keys,
+                System.currentTimeMillis(), 92233720368547758L, limit);
+    }
+
+    /*
+     * RSetCache is backed by a sorted set, so the union cardinality is computed
+     * exactly rather than estimated. An exact value is a valid result for an
+     * approximate count, so both variants share the same implementation.
+     */
+    @Override
+    public RFuture<Integer> countUnionApproxAsync(String... names) {
+        return countUnionAsync(0, names);
+    }
+
+    @Override
+    public RFuture<Integer> countUnionApproxAsync(int limit, String... names) {
+        return countUnionAsync(limit, names);
+    }
+
+    @Override
+    public RFuture<Integer> countDiffAsync(String... names) {
+        return countDiffAsync(0, names);
+    }
+
+    @Override
+    public RFuture<Integer> countDiffAsync(int limit, String... names) {
+        List<Object> keys = new ArrayList<>();
+        keys.add(getRawName());
+        keys.addAll(map(names));
+
+        return commandExecutor.evalReadAsync(getRawName(), IntegerCodec.INSTANCE, RedisCommands.EVAL_INTEGER,
+                   "local limit = tonumber(ARGV[3]);" +
+                         "local excluded = {};" +
+                         "for i = 2, #KEYS, 1 do " +
+                             "local values = redis.call('zrangebyscore', KEYS[i], ARGV[1], ARGV[2]);" +
+                             "for j = 1, #values, 1 do " +
+                                 "excluded[values[j]] = true;" +
+                             "end;" +
+                        "end;" +
+                        "local count = 0;" +
+                        "local values = redis.call('zrangebyscore', KEYS[1], ARGV[1], ARGV[2]);" +
+                        "for j = 1, #values, 1 do " +
+                            "if excluded[values[j]] == nil then " +
+                                "count = count + 1;" +
+                                "if limit > 0 and count >= limit then " +
+                                    "return count;" +
+                                "end;" +
+                            "end;" +
+                        "end;" +
+                        "return count;",
+                        keys,
+                System.currentTimeMillis(), 92233720368547758L, limit);
     }
 
     @Override
@@ -1476,6 +1614,9 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
         if (listener instanceof TrackingListener) {
             return addTrackingListener((TrackingListener) listener);
         }
+        if (listener instanceof SetExpiredListener) {
+            return get(addExpiredListenerAsync((SetExpiredListener<V>) listener));
+        }
 
         return super.addListener(listener);
     }
@@ -1491,8 +1632,49 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
         if (listener instanceof TrackingListener) {
             return addTrackingListenerAsync((TrackingListener) listener);
         }
+        if (listener instanceof SetExpiredListener) {
+            return addExpiredListenerAsync((SetExpiredListener<V>) listener);
+        }
 
         return super.addListenerAsync(listener);
+    }
+
+    private volatile BaseEventCodec.OSType osType;
+    private volatile Codec topicCodec;
+
+    protected RTopic getTopic(String name) {
+        if (getSubscribeService().isShardingSupported()) {
+            return RedissonShardedTopic.createRaw(topicCodec, commandExecutor, name);
+        }
+        return RedissonTopic.createRaw(topicCodec, commandExecutor, name);
+    }
+
+    private RFuture<Integer> addExpiredListenerAsync(SetExpiredListener<V> listener) {
+        CompletionStage<Void> osTypeFuture = CompletableFuture.completedFuture(null);
+        if (osType == null) {
+            RFuture<Map<String, String>> serverFuture = commandExecutor.readAsync((String) null, StringCodec.INSTANCE, RedisCommands.INFO_SERVER);
+            osTypeFuture = serverFuture.thenAccept(res -> {
+                String os = res.get("os");
+                if (os == null || os.contains("Windows")) {
+                    osType = BaseEventCodec.OSType.WINDOWS;
+                } else if (os.contains("NONSTOP")) {
+                    osType = BaseEventCodec.OSType.HPNONSTOP;
+                }
+                topicCodec = new SetCacheEventCodec(codec, osType);
+            });
+        }
+
+        CompletionStage<Integer> f = osTypeFuture.thenCompose(osType -> {
+            RTopic topic = getTopic(getExpiredChannelName());
+            return topic.addListenerAsync(List.class, (MessageListener<List<Object>>) (channel, msg) -> {
+                listener.onExpired((V) msg.get(0));
+            });
+        });
+        f = f.thenApply(id -> {
+            addListenerId(getExpiredChannelName(), id);
+            return id;
+        });
+        return new CompletableFutureWrapper<>(f);
     }
 
     @Override
@@ -1517,11 +1699,29 @@ public class RedissonSetCache<V> extends RedissonExpirable implements RSetCache<
     public void removeListener(int listenerId) {
         removeTrackingListener(listenerId);
         removeListener(listenerId, "__keyevent@*:zadd", "__keyevent@*:zrem");
+
+        String expiredChannelName = getExpiredChannelName();
+        if (getListenerIdsByName(expiredChannelName).contains(listenerId)) {
+            RTopic topic = getTopic(expiredChannelName);
+            removeListenerId(expiredChannelName, listenerId);
+            topic.removeListener(listenerId);
+        }
+
         super.removeListener(listenerId);
     }
 
     @Override
     public RFuture<Void> removeListenerAsync(int listenerId) {
+        String expiredChannelName = getExpiredChannelName();
+        if (getListenerIdsByName(expiredChannelName).contains(listenerId)) {
+            RTopic topic = getTopic(expiredChannelName);
+            removeListenerId(expiredChannelName, listenerId);
+            CompletionStage<Void> r = topic.removeListenerAsync(listenerId)
+                    .thenCompose(v -> removeTrackingListenerAsync(listenerId))
+                    .thenCompose(v -> removeListenerAsync(null, listenerId, "__keyevent@*:zadd", "__keyevent@*:zrem"));
+            return new CompletableFutureWrapper<>(r);
+        }
+
         return removeListenerAsync(removeTrackingListenerAsync(listenerId), listenerId,
                 "__keyevent@*:zadd", "__keyevent@*:zrem");
     }

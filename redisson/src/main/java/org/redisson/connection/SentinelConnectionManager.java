@@ -112,7 +112,7 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                     if (!master.isIP()) {
                         uri2hostname.put(masterUri, master.getHost());
                     }
-                    this.config.setMasterAddress(masterUri.toString());
+                    this.config.setMasterAddress(masterUri.toURIString());
                     currentMaster.set(masterUri);
                     log.info("master: {} added", masterHost);
 
@@ -138,7 +138,7 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                         if (isDown(flags, masterLinkStatus)) {
                             log.warn("slave: {} is down", slaveAddr);
                         } else {
-                            this.config.addSlaveAddress(uri.toString());
+                            this.config.addSlaveAddress(uri.toURIString());
                             log.info("slave: {} added", slaveAddr);
                         }
                     }
@@ -709,6 +709,16 @@ public class SentinelConnectionManager extends MasterSlaveConnectionManager {
                 .forEach(f -> f.toCompletableFuture().join());
 
         super.shutdown(quietPeriod, timeout, unit);
+    }
+
+    @Override
+    public CompletionStage<Void> shutdownAsync(long quietPeriod, long timeout, TimeUnit unit) {
+        if (monitorFuture != null) {
+            monitorFuture.cancel();
+        }
+        return CompletableFuture.allOf(sentinels.values().stream()
+                        .map(s -> s.shutdownAsync().toCompletableFuture()).toArray(CompletableFuture[]::new))
+                .thenCompose(v -> super.shutdownAsync(quietPeriod, timeout, unit));
     }
 
     private RedisURI applyNatMap(RedisURI address) {

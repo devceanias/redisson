@@ -579,7 +579,15 @@ public class MasterSlaveEntry {
     }
 
     public CompletableFuture<RedisConnection> connectionReadOp(RedisCommand<?> command, boolean trackChanges) {
-        if (config.getReadMode() == ReadMode.MASTER) {
+        return connectionReadOp(command, trackChanges, null);
+    }
+
+    public CompletableFuture<RedisConnection> connectionReadOp(RedisCommand<?> command, boolean trackChanges, ReadMode override) {
+        ReadMode mode = override;
+        if (override == null) {
+            mode = config.getReadMode();
+        }
+        if (mode == ReadMode.MASTER) {
             if (trackChanges) {
                 return trackedConnectionWriteOp(command);
             }
@@ -600,7 +608,15 @@ public class MasterSlaveEntry {
     }
     
     public CompletableFuture<RedisConnection> connectionReadOp(RedisCommand<?> command, RedisClient client, boolean trackChanges) {
-        if (config.getReadMode() == ReadMode.MASTER) {
+        return connectionReadOp(command, client, trackChanges, null);
+    }
+
+    public CompletableFuture<RedisConnection> connectionReadOp(RedisCommand<?> command, RedisClient client, boolean trackChanges, ReadMode override) {
+        ReadMode mode = override;
+        if (override == null) {
+            mode = config.getReadMode();
+        }
+        if (mode == ReadMode.MASTER) {
             if (trackChanges) {
                 return trackedConnectionWriteOp(command);
             }
@@ -656,7 +672,15 @@ public class MasterSlaveEntry {
     }
 
     public void releaseRead(RedisConnection connection) {
-        if (config.getReadMode() == ReadMode.MASTER) {
+        releaseRead(connection, null);
+    }
+
+    public void releaseRead(RedisConnection connection, ReadMode override) {
+        ReadMode mode = override;
+        if (override == null) {
+            mode = config.getReadMode();
+        }
+        if (mode == ReadMode.MASTER) {
             releaseWrite(connection);
             return;
         }

@@ -125,6 +125,33 @@ public class RedissonStream<K, V> extends RedissonExpirable implements RStream<K
         return get(ackAsync(args));
     }
 
+    public RFuture<Long> nackAsync(StreamNackArgs args) {
+        StreamNackParams pps = (StreamNackParams) args;
+        List<Object> params = new ArrayList<Object>();
+        params.add(getRawName());
+        params.add(pps.getGroupName());
+        params.add(pps.getMode());
+        params.add("IDS");
+        params.add(pps.getIds().length);
+        params.addAll(Arrays.asList(pps.getIds()));
+
+        if (pps.getRetryCount() != null) {
+            params.add("RETRYCOUNT");
+            params.add(pps.getRetryCount());
+        }
+
+        if (pps.isForce()) {
+            params.add("FORCE");
+        }
+
+        return commandExecutor.writeAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.XNACK, params.toArray());
+    }
+
+    @Override
+    public long nack(StreamNackArgs args) {
+        return get(nackAsync(args));
+    }
+
     @Override
     public RFuture<PendingResult> getPendingInfoAsync(String groupName) {
         return commandExecutor.readAsync(getRawName(), StringCodec.INSTANCE, RedisCommands.XPENDING, getRawName(), groupName);
@@ -271,6 +298,16 @@ public class RedissonStream<K, V> extends RedissonExpirable implements RStream<K
             params.add(rp.getCount());
         }
 
+        if (rp.getMaxCount() > 0) {
+            params.add("MAXCOUNT");
+            params.add(rp.getMaxCount());
+        }
+
+        if (rp.getMaxSize() > 0) {
+            params.add("MAXSIZE");
+            params.add(rp.getMaxSize());
+        }
+
         if (rp.getTimeout() != null) {
             params.add("BLOCK");
             params.add(rp.getTimeout().toMillis());
@@ -317,6 +354,16 @@ public class RedissonStream<K, V> extends RedissonExpirable implements RStream<K
         if (rp.getCount() > 0) {
             params.add("COUNT");
             params.add(rp.getCount());
+        }
+
+        if (rp.getMaxCount() > 0) {
+            params.add("MAXCOUNT");
+            params.add(rp.getMaxCount());
+        }
+
+        if (rp.getMaxSize() > 0) {
+            params.add("MAXSIZE");
+            params.add(rp.getMaxSize());
         }
 
         if (rp.getTimeout() != null) {
@@ -410,6 +457,16 @@ public class RedissonStream<K, V> extends RedissonExpirable implements RStream<K
             params.add(rp.getCount());
         }
 
+        if (rp.getMaxCount() > 0) {
+            params.add("MAXCOUNT");
+            params.add(rp.getMaxCount());
+        }
+
+        if (rp.getMaxSize() > 0) {
+            params.add("MAXSIZE");
+            params.add(rp.getMaxSize());
+        }
+
         if (rp.getTimeout() != null) {
             params.add("BLOCK");
             params.add(rp.getTimeout().toMillis());
@@ -443,6 +500,16 @@ public class RedissonStream<K, V> extends RedissonExpirable implements RStream<K
         if (rp.getCount() > 0) {
             params.add("COUNT");
             params.add(rp.getCount());
+        }
+
+        if (rp.getMaxCount() > 0) {
+            params.add("MAXCOUNT");
+            params.add(rp.getMaxCount());
+        }
+
+        if (rp.getMaxSize() > 0) {
+            params.add("MAXSIZE");
+            params.add(rp.getMaxSize());
         }
 
         if (rp.getTimeout() != null) {

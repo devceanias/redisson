@@ -1128,12 +1128,12 @@ public class RedissonScoredSortedSetTest extends RedisDockerTest {
     public void testIteratorSequence() {
         RScoredSortedSet<Integer> set = redisson.getScoredSortedSet("simple");
         for (int i = 0; i < 1000; i++) {
-            set.add(i, Integer.valueOf(i));
+            set.add(i, i);
         }
 
         Set<Integer> setCopy = new HashSet<>();
         for (int i = 0; i < 1000; i++) {
-            setCopy.add(Integer.valueOf(i));
+            setCopy.add(i);
         }
 
         checkIterator(set, setCopy);

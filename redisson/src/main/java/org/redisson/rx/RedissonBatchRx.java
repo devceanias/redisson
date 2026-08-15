@@ -42,6 +42,16 @@ public class RedissonBatchRx implements RBatchRx {
     }
 
     @Override
+    public <V> RArrayRx<V> getArray(String name) {
+        return RxProxyBuilder.create(executorService, new RedissonArray<V>(executorService, name), RArrayRx.class);
+    }
+
+    @Override
+    public <V> RArrayRx<V> getArray(String name, Codec codec) {
+        return RxProxyBuilder.create(executorService, new RedissonArray<V>(codec, executorService, name), RArrayRx.class);
+    }
+
+    @Override
     public <K, V> RStreamRx<K, V> getStream(String name) {
         return RxProxyBuilder.create(executorService, new RedissonStream<K, V>(executorService, name), RStreamRx.class);
     }
@@ -438,6 +448,32 @@ public class RedissonBatchRx implements RBatchRx {
         return RxProxyBuilder.create(executorService,
                 new RedissonCuckooFilter<V>(codec, executorService, name),
                 RCuckooFilterRx.class);
+    }
+
+    @Override
+    public RTDigestRx getTDigest(String name) {
+        return RxProxyBuilder.create(executorService,
+                new RedissonTDigest(executorService, name),
+                RTDigestRx.class);
+    }
+
+    @Override
+    public <V> RTopKRx<V> getTopK(String name) {
+        return getTopK(name, null);
+    }
+
+    @Override
+    public <V> RTopKRx<V> getTopK(String name, Codec codec) {
+        return RxProxyBuilder.create(executorService,
+                new RedissonTopK<V>(codec, executorService, name),
+                RTopKRx.class);
+    }
+
+    @Override
+    public RVectorSetRx getVectorSet(String name) {
+        return RxProxyBuilder.create(executorService,
+                new RedissonVectorSet(executorService, name),
+                RVectorSetRx.class);
     }
 
 }

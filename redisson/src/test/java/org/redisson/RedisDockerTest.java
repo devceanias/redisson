@@ -25,7 +25,7 @@ import java.util.stream.Collectors;
 
 public class RedisDockerTest {
 
-    protected static final String IMAGE = "redis:8.8-m03";
+    protected static final String IMAGE = "redis:8.10";
 
     protected static final String NOTIFY_KEYSPACE_EVENTS = "--notify-keyspace-events";
 
@@ -398,7 +398,7 @@ public class RedisDockerTest {
 
                         if (mappedPort != null
                                 && s.getIpAddress().equals(uri.getHost())) {
-                            return new RedisURI(uri.getScheme(), "127.0.0.1", Integer.valueOf(mappedPort[0].getHostPortSpec()));
+                            return new RedisURI(uri.getScheme(), "127.0.0.1", Integer.parseInt(mappedPort[0].getHostPortSpec()));
                         }
                     }
                     return uri;
@@ -479,7 +479,7 @@ public class RedisDockerTest {
 
                             if (mappedPort != null
                                     && s.getIpAddress().equals(uri.getHost())) {
-                                return new RedisURI(uri.getScheme(), "127.0.0.1", Integer.valueOf(mappedPort[0].getHostPortSpec()));
+                                return new RedisURI(uri.getScheme(), "127.0.0.1", Integer.parseInt(mappedPort[0].getHostPortSpec()));
                             }
                         }
                         return uri;

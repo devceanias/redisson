@@ -39,7 +39,7 @@ public class HostPortNatMapper implements NatMapper {
         int lastColonIdx = hostPort.lastIndexOf(":");
         String host = hostPort.substring(0, lastColonIdx);
         String port = hostPort.substring(lastColonIdx + 1);
-        return new RedisURI(uri.getScheme(), host, Integer.valueOf(port));
+        return new RedisURI(uri.getScheme(), host, Integer.parseInt(port));
     }
 
     /**

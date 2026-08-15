@@ -1,3 +1,7 @@
+---
+description: "Distributed Java collections on Valkey and Redis, including Map with local cache and eviction, Multimap, Set, SortedSet, List, Queue, Deque and JSON Store."
+---
+
 ## Map
 Java implementation of Valkey or Redis based [Map](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMap.html) object for Java implements [ConcurrentMap](https://docs.oracle.com/javase/8/docs/api/java/util/concurrent/ConcurrentMap.html) interface. This object is thread-safe. Consider to use [Live Object service](services.md/#live-object-service) to store POJO object as Valkey or Redis Map. Valkey or Redis uses serialized state to check key uniqueness instead of key's `hashCode()`/`equals()` methods.
 
@@ -44,6 +48,83 @@ try {
    keyLock.readLock().unlock();
 }
 ```
+
+**Operations over multiple objects**
+
+Use the [RMaps](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMaps.html) interface to run operations over several [RMap](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMap.html) objects in a single round trip - writing a whole batch of maps at once, or streaming in many maps one by one. Maps that share the same field names are written with a single declaration of those names, which reduces the amount of transferred data and lets Valkey or Redis keep one copy of the field names for all such objects.
+
+=== "Sync"
+    ```
+    RMaps<String, Integer> maps = redisson.getMaps();
+
+    // write several whole Map objects at once, keyed by name
+    Map<String, Map<String, Integer>> objects = new HashMap<>();
+    objects.put("product:1", Map.of("price", 100, "qty", 5));
+    objects.put("product:2", Map.of("price", 200, "qty", 3));
+    maps.set(objects);
+
+    // or write them in portions of 100 objects
+    maps.set(objects, 100);
+
+    // stream many objects that share the same field names, one by one
+    RMapsImport<String, Integer> imp = maps.createImport(
+            MapsImportArgs.fields("price", "qty").batchSize(100));
+    imp.add("product:3", 300, 8);
+    imp.add("product:4", 400, 2);
+    imp.flush();
+    ```
+=== "Async"
+    ```
+    RMapsAsync<String, Integer> maps = redisson.getMaps();
+
+    Map<String, Map<String, Integer>> objects = new HashMap<>();
+    objects.put("product:1", Map.of("price", 100, "qty", 5));
+    objects.put("product:2", Map.of("price", 200, "qty", 3));
+
+    // store all at once, or in portions of 100
+    RFuture<Void> setFuture = maps.setAsync(objects);
+    RFuture<Void> batchFuture = maps.setAsync(objects, 100);
+
+    // stream objects that share the same field names
+    RMapsImportAsync<String, Integer> imp = maps.createImport(
+            MapsImportArgs.fields("price", "qty").batchSize(100));
+    RFuture<Void> addFuture = imp.addAsync("product:3", 300, 8);
+    RFuture<Void> flushFuture = imp.flushAsync();
+    ```
+=== "Reactive"
+    ```
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RMapsReactive<String, Integer> maps = redisson.getMaps();
+
+    Map<String, Map<String, Integer>> objects = new HashMap<>();
+    objects.put("product:1", Map.of("price", 100, "qty", 5));
+    objects.put("product:2", Map.of("price", 200, "qty", 3));
+
+    Mono<Void> setMono = maps.set(objects);
+    Mono<Void> batchMono = maps.set(objects, 100);
+
+    RMapsImportReactive<String, Integer> imp = maps.createImport(
+            MapsImportArgs.fields("price", "qty").batchSize(100));
+    Mono<Void> addMono = imp.add("product:3", 300, 8);
+    Mono<Void> flushMono = imp.flush();
+    ```
+=== "RxJava3"
+    ```
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RMapsRx<String, Integer> maps = redisson.getMaps();
+
+    Map<String, Map<String, Integer>> objects = new HashMap<>();
+    objects.put("product:1", Map.of("price", 100, "qty", 5));
+    objects.put("product:2", Map.of("price", 200, "qty", 3));
+
+    Completable setRx = maps.set(objects);
+    Completable batchRx = maps.set(objects, 100);
+
+    RMapsImportRx<String, Integer> imp = maps.createImport(
+            MapsImportArgs.fields("price", "qty").batchSize(100));
+    Completable addRx = imp.add("product:3", 300, 8);
+    Completable flushRx = imp.flush();
+    ```
 
 ### Eviction, local cache and data partitioning
 
@@ -123,7 +204,7 @@ Available implementations:
 |getClusteredMapCacheNativeV2()<br/><sub><i>available only in [Redisson PRO](https://redisson.pro/feature-comparison.html)</i></sub> | ❌ | ✔️ | ✔️ | ✔️ | ✔️ |
 |getClusteredLocalCachedMapCacheNativeV2()<br/><sub><i>available only in [Redisson PRO](https://redisson.pro/feature-comparison.html)</i></sub> | ✔️ | ✔️ | ✔️ | ✔️ | ✔️ |
 
-Redisson also provides various [Cache API](../cache-API-implementations.md) implementations.
+Redisson also provides various [Cache API](../cache-api-implementations.md) implementations.
 
 Code example:
 ```java
@@ -471,8 +552,8 @@ Redisson allows binding listeners per `RMap` object. This requires the `notify-k
 |Listener class name|Event description | Valkey or Redis<br/>`notify-keyspace-events` value|
 |:--:|:--:|:--:|
 |org.redisson.api.listener.TrackingListener|Entry created/removed/updated after read operation| - |
-|org.redisson.api.listener.MapPutListener|Entry created/updated|Eh|
-|org.redisson.api.listener.MapRemoveListener|Entry removed|Eh|
+|org.redisson.api.listener.MapPutListener|Entry created/updated|Eh or Th|
+|org.redisson.api.listener.MapRemoveListener|Entry removed|Eh or Th|
 |org.redisson.api.ExpiredObjectListener|`RMap` object expired|Ex|
 |org.redisson.api.DeletedObjectListener|`RMap` object deleted|Eg|
 
@@ -496,14 +577,14 @@ int listenerId = map.addListener(new ExpiredObjectListener() {
 
 int listenerId = map.addListener(new MapPutListener() {
      @Override
-     public void onPut(String name) {
+     public void onPut(String name, String fieldName) {
         // ...
      }
 });
 
 int listenerId = map.addListener(new MapRemoveListener() {
      @Override
-     public void onRemove(String name) {
+     public void onRemove(String name, String fieldName) {
         // ...
      }
 });
@@ -631,138 +712,261 @@ map.put("3", "3", 1, TimeUnit.SECONDS);
 ```
 
 ## Multimap
-Java implementation of Valkey or Redis based [Multimap](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMultimap.html) object for  allows to store multiple values per key. Keys amount limited to `4 294 967 295` elements. Valkey and Redis use serialized key state to its uniqueness instead of key's `hashCode()`/`equals()` methods. This object is thread-safe.
 
-It has [Async](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMultimapAsync.html), [Reactive](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMultimapReactive.html) and [RxJava3](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMultimapRx.html) interfaces.
+Java implementation of a Valkey or Redis based [Multimap](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMultimap.html) maps each key to a collection of values rather than a single value, so one key can hold many entries at once. Redisson provides two implementations - set-based and list-based - that differ in whether duplicate values are allowed and whether order is preserved. The number of keys is limited to `4 294 967 295` elements, key uniqueness is determined from the serialized key state rather than the key's `hashCode()`/`equals()` methods, and the object is thread-safe.
 
-### Set based Multimap
-Set based Multimap doesn't allow duplications for values per key.
+### Choosing between set-based and list-based
+
+Both implementations expose the same API and differ only in the semantics of the value collection held under each key.
+
+| | Set-based (`RSetMultimap`) | List-based (`RListMultimap`) |
+|:---|:---:|:---:|
+| Duplicate values per key | not allowed | allowed |
+| Value order | unordered | insertion order |
+| `get(key)` returns | live [RSet](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSet.html) | live [RList](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RList.html) |
+| `getAll` / `removeAll` / `replaceValues` return | `Set` | `List` |
+| Backing structure | Valkey or Redis Set per key | Valkey or Redis List per key |
+
+Prefer a multimap over a plain `RMap<K, Collection<V>>` when individual values have to be added, removed, or tested for membership atomically on the server: a multimap mutates the per-key collection in place, avoiding the read-modify-write race of loading a collection, changing it, and writing it back.
+
+### Basic usage
+
+Both implementations are obtained from the Redisson client and share the same methods; the examples below use the set-based multimap, and the list-based one behaves identically apart from keeping duplicates and order and returning `List` from its read methods. The asynchronous, reactive, and RxJava3 interfaces mirror the synchronous one - their methods return `RFuture`, `Mono`, and `Single` - so the tabs below differ only in those wrappers.
+
+=== "Sync"
+    ```java
+    RSetMultimap<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    map.put("user:1", "admin");
+    map.putAll("user:1", List.of("editor", "viewer"));
+
+    int total = map.size();             // total number of key-value pairs
+    long removed = map.fastRemove("user:1"); // remove one or more keys
+    ```
+=== "Async"
+    ```java
+    RSetMultimap<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    RFuture<Boolean> putFuture = map.putAsync("user:1", "admin");
+    RFuture<Boolean> putAllFuture = map.putAllAsync("user:1", List.of("editor", "viewer"));
+
+    RFuture<Integer> sizeFuture = map.sizeAsync();
+    RFuture<Long> removeFuture = map.fastRemoveAsync("user:1");
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RSetMultimapReactive<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    Mono<Boolean> putMono = map.put("user:1", "admin");
+    Mono<Boolean> putAllMono = map.putAll("user:1", List.of("editor", "viewer"));
+
+    Mono<Integer> sizeMono = map.size();
+    Mono<Long> removeMono = map.fastRemove("user:1");
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RSetMultimapRx<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    Single<Boolean> putRx = map.put("user:1", "admin");
+    Single<Boolean> putAllRx = map.putAll("user:1", List.of("editor", "viewer"));
+
+    Single<Integer> sizeRx = map.size();
+    Single<Long> removeRx = map.fastRemove("user:1");
+    ```
+
+### Adding and reading values
+
+`put` adds a single value under a key and returns whether the collection changed; `putAll` adds several values at once. Reads come in two forms: `get` returns a live view of the key's values, while `getAll` returns a detached snapshot - a `Set`/`List` on the synchronous, reactive, and RxJava3 interfaces, and a `Collection` on the asynchronous one.
+
+!!! note
+
+    The view returned by `get` is itself a full Redisson collection - an [RSet](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSet.html) for set-based multimaps or an [RList](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RList.html) for list-based ones - bound to the key. Calling its own methods, or iterating it, reads and writes straight through to the multimap, so it can be passed anywhere an `RSet`/`RList` is expected without copying the values out. The asynchronous interface has no live-view `get`; use `getAllAsync` instead.
+
+=== "Sync"
+    ```java
+    RSetMultimap<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    map.put("user:1", "admin");
+    map.putAll("user:1", List.of("editor", "viewer"));
+
+    RSet<String> live = map.get("user:1");    // live view, writes through to the multimap
+    Set<String> roles = map.getAll("user:1"); // detached snapshot
+    ```
+=== "Async"
+    ```java
+    RSetMultimap<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    RFuture<Boolean> putFuture = map.putAsync("user:1", "admin");
+    RFuture<Boolean> putAllFuture = map.putAllAsync("user:1", List.of("editor", "viewer"));
+
+    RFuture<Collection<String>> rolesFuture = map.getAllAsync("user:1"); // detached Collection
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RSetMultimapReactive<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    Mono<Boolean> putMono = map.put("user:1", "admin");
+    Mono<Boolean> putAllMono = map.putAll("user:1", List.of("editor", "viewer"));
+
+    RSetReactive<String> live = map.get("user:1");      // live view
+    Mono<Set<String>> rolesMono = map.getAll("user:1"); // detached snapshot
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RSetMultimapRx<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    Single<Boolean> putRx = map.put("user:1", "admin");
+    Single<Boolean> putAllRx = map.putAll("user:1", List.of("editor", "viewer"));
+
+    RSetRx<String> live = map.get("user:1");            // live view
+    Single<Set<String>> rolesRx = map.getAll("user:1"); // detached snapshot
+    ```
+
+Alongside per-key access, the multimap exposes map-wide views - `keySet`, `values`, and `entries` - plus `size` (the total number of key-value pairs) and the `containsKey`/`containsValue`/`containsEntry` checks. The map-wide views are read on the synchronous interface:
+
 ```java
-RSetMultimap<SimpleKey, SimpleValue> map = redisson.getSetMultimap("myMultimap");
-map.put(new SimpleKey("0"), new SimpleValue("1"));
-map.put(new SimpleKey("0"), new SimpleValue("2"));
-map.put(new SimpleKey("3"), new SimpleValue("4"));
-
-Set<SimpleValue> allValues = map.get(new SimpleKey("0"));
-
-List<SimpleValue> newValues = Arrays.asList(new SimpleValue("7"), new SimpleValue("6"), new SimpleValue("5"));
-Set<SimpleValue> oldValues = map.replaceValues(new SimpleKey("0"), newValues);
-
-Set<SimpleValue> removedValues = map.removeAll(new SimpleKey("0"));
+Set<String> keys = map.keySet();
+Collection<String> allValues = map.values();
+Collection<Map.Entry<String, String>> allEntries = map.entries();
+int total = map.size();
+boolean hasRole = map.containsEntry("user:1", "admin");
 ```
-### List based Multimap
-List based [Multimap](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RMultimap.html) object for Java stores entries in insertion order and allows duplicates for values mapped to key.
-```java
-RListMultimap<SimpleKey, SimpleValue> map = redisson.getListMultimap("test1");
-map.put(new SimpleKey("0"), new SimpleValue("1"));
-map.put(new SimpleKey("0"), new SimpleValue("2"));
-map.put(new SimpleKey("0"), new SimpleValue("1"));
-map.put(new SimpleKey("3"), new SimpleValue("4"));
 
-List<SimpleValue> allValues = map.get(new SimpleKey("0"));
+### Removing and replacing values
 
-Collection<SimpleValue> newValues = Arrays.asList(new SimpleValue("7"), new SimpleValue("6"), new SimpleValue("5"));
-List<SimpleValue> oldValues = map.replaceValues(new SimpleKey("0"), newValues);
+`remove` deletes a single value from a key and reports whether it was present. `removeAll` deletes a key's entire collection and returns the removed values, while `fastRemove` deletes one or more keys without returning their values and is the most efficient way to drop keys. `replaceValues` swaps a key's whole collection for a new one and returns the previous values.
 
-List<SimpleValue> removedValues = map.removeAll(new SimpleKey("0"));
-```
+=== "Sync"
+    ```java
+    RSetMultimap<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    boolean removed = map.remove("user:1", "viewer");
+    Set<String> previous = map.replaceValues("user:1", List.of("admin", "owner"));
+    Set<String> dropped = map.removeAll("user:1");
+    long count = map.fastRemove("user:1", "user:2");
+    ```
+=== "Async"
+    ```java
+    RSetMultimap<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    RFuture<Boolean> removeFuture = map.removeAsync("user:1", "viewer");
+    RFuture<Collection<String>> replaceFuture = map.replaceValuesAsync("user:1", List.of("admin", "owner"));
+    RFuture<Collection<String>> droppedFuture = map.removeAllAsync("user:1");
+    RFuture<Long> countFuture = map.fastRemoveAsync("user:1", "user:2");
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RSetMultimapReactive<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    Mono<Boolean> removeMono = map.remove("user:1", "viewer");
+    Mono<Set<String>> replaceMono = map.replaceValues("user:1", List.of("admin", "owner"));
+    Mono<Set<String>> droppedMono = map.removeAll("user:1");
+    Mono<Long> countMono = map.fastRemove("user:1", "user:2");
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RSetMultimapRx<String, String> map = redisson.getSetMultimap("myMultimap");
+
+    Single<Boolean> removeRx = map.remove("user:1", "viewer");
+    Single<Set<String>> replaceRx = map.replaceValues("user:1", List.of("admin", "owner"));
+    Single<Set<String>> droppedRx = map.removeAll("user:1");
+    Single<Long> countRx = map.fastRemove("user:1", "user:2");
+    ```
 
 ### Eviction
-Multimap entries eviction implemented by a separate MultimapCache object. There are [RSetMultimapCache](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetMultimapCache.html) and [RListMultimapCache](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RListMultimapCache.html) objects for Set and List based Multimaps respectively.  
+The plain `RSetMultimap` and `RListMultimap` objects can be expired as a whole - they implement [RExpirable](common-methods.md#expiration), so `expire` and `clearExpire` apply to the entire multimap - but they don't support expiration of individual entries. Per-entry eviction with a `time to live` is provided by separate MultimapCache objects. There are [RSetMultimapCache](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetMultimapCache.html) and [RListMultimapCache](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RListMultimapCache.html) objects for Set and List based Multimaps respectively.  
 
-Eviction task is started once per unique object name at the moment of getting Multimap instance. If instance isn't used and has expired entries it should be get again to start the eviction process. This leads to extra Valkey or Redis calls and eviction task per unique map object name. 
+With the scripted cache, an eviction task is started once per unique object name at the moment of getting the Multimap instance. If instance isn't used and has expired entries it should be get again to start the eviction process. This leads to extra Valkey or Redis calls and eviction task per unique map object name. 
 
 Entries are cleaned time to time by `org.redisson.eviction.EvictionScheduler`. By default, it removes 100 expired entries at a time. This can be changed through [cleanUpKeysAmount](../configuration.md) setting. Task launch time tuned automatically and depends on expired entries amount deleted in previous time and varies between 5 second to 30 minutes by default. This time interval can be changed through [minCleanUpDelay](../configuration.md) and [maxCleanUpDelay](../configuration.md). For example, if clean task deletes 100 entries each time it will be executed every 5 seconds (minimum execution delay). But if current expired entries amount is lower than previous one then execution delay will be increased by 1.5 times and decreased otherwise.
 
-Redis 7.4.0 and higher version implements native eviction. It's supported by [RSetMultimapCacheNative](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RSetMultimapCacheNative.html) and [RListMultimapCacheNative](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RListMultimapCacheNative.html) objects.
+Redis 7.4.0 and higher version implements native eviction. It's supported by [RSetMultimapCacheNative](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RSetMultimapCacheNative.html) and [RListMultimapCacheNative](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RListMultimapCacheNative.html) objects. Expiration is handled on the server side, so no client-side eviction task or `EvictionScheduler` is involved.
 
 Code examples:
 
 === "Sync"
-	```java
-	// scripted eviction implementation
-	RSetMultimapCache<String, String> multimap = redisson.getSetMultimapCache("myMultimap");
+    ```java
+    // scripted eviction implementation
+    RSetMultimapCache<String, String> multimap = redisson.getSetMultimapCache("myMultimap");
 
-	// native eviction implementation
-	RSetMultimapCacheNative<String, String> multimap = redisson.getSetMultimapCacheNative("myMultimap");
+    // or native eviction implementation (Redis 7.4.0 and higher):
+    // RSetMultimapCacheNative<String, String> multimap = redisson.getSetMultimapCacheNative("myMultimap");
 
-	multimap.put("1", "a");
-	multimap.put("1", "b");
-	multimap.put("1", "c");
+    multimap.put("1", "a");
+    multimap.put("1", "b");
+    multimap.put("1", "c");
 
-	multimap.put("2", "e");
-	multimap.put("2", "f");
+    multimap.put("2", "e");
+    multimap.put("2", "f");
 
-	multimap.expireKey("2", 10, TimeUnit.MINUTES);
+    multimap.expireKey("2", 10, TimeUnit.MINUTES);
 
-	// if object is not used anymore
-	multimap.destroy();
-	```
+    // once the object is no longer used
+    multimap.destroy();
+    ```
 === "Async"
-	```java
-	// scripted eviction implementation
-	RSetMultimapCacheAsync<String, String> multimap = redisson.getSetMultimapCache("myMultimap");
+    ```java
+    // scripted eviction implementation
+    RSetMultimapCacheAsync<String, String> multimap = redisson.getSetMultimapCache("myMultimap");
 
-	// native eviction implementation
-	RSetMultimapCacheNativeAsync<String, String> multimap = redisson.getSetMultimapCacheNative("myMultimap");
+    // or native eviction implementation (Redis 7.4.0 and higher):
+    // RSetMultimapCacheNativeAsync<String, String> multimap = redisson.getSetMultimapCacheNative("myMultimap");
 
-	RFuture<Boolean> f1 = multimap.putAsync("1", "a");
-	RFuture<Boolean> f2 = multimap.putAsync("1", "b");
-	RFuture<Boolean> f3 = multimap.putAsync("1", "c");
+    RFuture<Boolean> f1 = multimap.putAsync("1", "a");
+    RFuture<Boolean> f2 = multimap.putAsync("1", "b");
+    RFuture<Boolean> f3 = multimap.putAsync("1", "c");
 
-	RFuture<Boolean> f4 = multimap.putAsync("2", "e");
-	RFuture<Boolean> f5 = multimap.putAsync("2", "f");
+    RFuture<Boolean> f4 = multimap.putAsync("2", "e");
+    RFuture<Boolean> f5 = multimap.putAsync("2", "f");
 
-	RFuture<Boolean> exfeature = multimap.expireKeyAsync("2", 10, TimeUnit.MINUTES);
-
-	// if object is not used anymore
-	multimap.destroy();
-	```
+    RFuture<Boolean> exfeature = multimap.expireKeyAsync("2", 10, TimeUnit.MINUTES);
+    ```
 === "Reactive"
     ```java
-	RedissonReactiveClient redissonReactive = redisson.reactive();
-	
-	// scripted eviction implementation
-	RSetMultimapCacheReactive<String, String> multimap = redissonReactive.getSetMultimapCache("myMultimap");
+    RedissonReactiveClient redissonReactive = redisson.reactive();
 
-	// native eviction implementation
-	RSetMultimapCacheNativeReactive<String, String> multimap = redissonReactive.getSetMultimapCacheNative("myMultimap");
-	
-	Mono<Boolean> f1 = multimap.put("1", "a");
-	Mono<Boolean> f2 = multimap.put("1", "b");
-	Mono<Boolean> f3 = multimap.put("1", "c");
+    // scripted eviction implementation
+    RSetMultimapCacheReactive<String, String> multimap = redissonReactive.getSetMultimapCache("myMultimap");
 
-	Mono<Boolean> f4 = multimap.put("2", "e");
-	Mono<Boolean> f5 = multimap.put("2", "f");
+    // or native eviction implementation (Redis 7.4.0 and higher):
+    // RSetMultimapCacheNativeReactive<String, String> multimap = redissonReactive.getSetMultimapCacheNative("myMultimap");
 
-	Mono<Boolean> exfeature = multimap.expireKey("2", 10, TimeUnit.MINUTES);
+    Mono<Boolean> f1 = multimap.put("1", "a");
+    Mono<Boolean> f2 = multimap.put("1", "b");
+    Mono<Boolean> f3 = multimap.put("1", "c");
 
-	// if object is not used anymore
-	multimap.destroy();
+    Mono<Boolean> f4 = multimap.put("2", "e");
+    Mono<Boolean> f5 = multimap.put("2", "f");
+
+    Mono<Boolean> exfeature = multimap.expireKey("2", 10, TimeUnit.MINUTES);
     ```
 === "RxJava3"
     ```java
-	RedissonRxClient redissonRx = redisson.rxJava();
-	
-	// scripted eviction implementation
-	RSetMultimapCacheRx<String, String> multimap = redissonReactive.getSetMultimapCache("myMultimap");
+    RedissonRxClient redissonRx = redisson.rxJava();
 
-	// native eviction implementation
-	RSetMultimapCacheNativeRx<String, String> multimap = redissonReactive.getSetMultimapCacheNative("myMultimap");
-	
-	Single<Boolean> f1 = multimap.put("1", "a");
-	Single<Boolean> f2 = multimap.put("1", "b");
-	Single<Boolean> f3 = multimap.put("1", "c");
+    // scripted eviction implementation
+    RSetMultimapCacheRx<String, String> multimap = redissonRx.getSetMultimapCache("myMultimap");
 
-	Single<Boolean> f4 = multimap.put("2", "e");
-	Single<Boolean> f5 = multimap.put("2", "f");
+    // or native eviction implementation (Redis 7.4.0 and higher):
+    // RSetMultimapCacheNativeRx<String, String> multimap = redissonRx.getSetMultimapCacheNative("myMultimap");
 
-	Single<Boolean> exfeature = multimap.expireKey("2", 10, TimeUnit.MINUTES);
+    Single<Boolean> f1 = multimap.put("1", "a");
+    Single<Boolean> f2 = multimap.put("1", "b");
+    Single<Boolean> f3 = multimap.put("1", "c");
 
-	// if object is not used anymore
-	multimap.destroy();
+    Single<Boolean> f4 = multimap.put("2", "e");
+    Single<Boolean> f5 = multimap.put("2", "f");
+
+    Single<Boolean> exfeature = multimap.expireKey("2", 10, TimeUnit.MINUTES);
     ```
 
+List-based caches are obtained the same way with `getListMultimapCache` and `getListMultimapCacheNative`, and expose the identical API with `List` value semantics.
 
 ### Listeners
 
@@ -776,8 +980,8 @@ Redisson allows binding listeners per `RSetMultimap` or `RListMultimap` object. 
 |org.redisson.api.DeletedObjectListener|`RSetMultimap` object deleted| Eg|
 |org.redisson.api.listener.SetAddListener|Element added to entry| Es|
 |org.redisson.api.listener.SetRemoveListener|Element removed from entry| Es|
-|org.redisson.api.listener.MapPutListener|Entry created|Eh|
-|org.redisson.api.listener.MapRemoveListener|Entry removed|Eh|
+|org.redisson.api.listener.MapPutListener|Entry created|Eh or Th|
+|org.redisson.api.listener.MapRemoveListener|Entry removed|Eh or Th|
 
 `RListMultimap` listeners:
 
@@ -787,8 +991,10 @@ Redisson allows binding listeners per `RSetMultimap` or `RListMultimap` object. 
 |org.redisson.api.DeletedObjectListener|`RListMultimap` object deleted| Eg|
 |org.redisson.api.listener.ListAddListener|Element added to entry| Es|
 |org.redisson.api.listener.ListRemoveListener|Element removed from entry| Es|
-|org.redisson.api.listener.MapPutListener|Entry created|Eh|
-|org.redisson.api.listener.MapRemoveListener|Entry removed|Eh|
+|org.redisson.api.listener.MapPutListener|Entry created|Eh or Th|
+|org.redisson.api.listener.MapRemoveListener|Entry removed|Eh or Th|
+
+Listener callbacks receive the affected Redis key name - and, for entry-level events, the field - as `String` values, not the multimap's typed key and value.
 
 Usage example:
 
@@ -797,7 +1003,7 @@ RListMultimap<Integer, Integer> lmap = redisson.getListMultimap("mymap");
 
 int listenerId = lmap.addListener(new MapPutListener() {
      @Override
-     public void onPut(String name) {
+     public void onPut(String name, String fieldName) {
         // ...
      }
 });
@@ -807,100 +1013,463 @@ int listenerId = lmap.addListener(new MapPutListener() {
 lmap.removeListener(listenerId);
 ```
 
+### Use Cases
+
+Multimaps fit wherever one key owns a changing collection of values - secondary indexes, one-to-many relationships, and grouping streams of items by a key - with the choice between the set- and list-based implementations deciding whether duplicates and order matter.
+
+**Tag and Label Indexes**
+
+A set-based multimap makes a natural inverted index: map each tag to the ids that carry it, look them up directly, and let set semantics keep ids unique no matter how often a tag is reapplied.
+
+```java
+RSetMultimap<String, String> tagIndex = redisson.getSetMultimap("tag-index");
+
+tagIndex.put("premium", "user:1001");
+tagIndex.put("premium", "user:1002");
+tagIndex.put("beta", "user:1001");
+
+// every id carrying a tag - duplicates are ignored
+Set<String> premiumUsers = tagIndex.getAll("premium");
+```
+
+**One-to-Many Relationships**
+
+Parent-to-children relationships - a customer's orders, an author's posts - map cleanly to a multimap keyed by the parent id. With a set-based multimap each child appears once, and the whole group is read, replaced, or removed in a single call.
+
+```java
+RSetMultimap<Long, Long> ordersByCustomer = redisson.getSetMultimap("orders-by-customer");
+
+ordersByCustomer.put(1001L, 55001L);
+ordersByCustomer.put(1001L, 55002L);
+
+// all orders for a customer
+Set<Long> orders = ordersByCustomer.getAll(1001L);
+
+// remove the customer and all their orders at once
+Set<Long> removed = ordersByCustomer.removeAll(1001L);
+```
+
+**Grouping Events in Order**
+
+When the values are a sequence rather than a set - log lines per request, events per session, messages per conversation - a list-based multimap preserves insertion order and keeps duplicates. Paired with the cache variant, an idle group can expire on its own.
+
+```java
+RListMultimapCache<String, String> eventsBySession = redisson.getListMultimapCache("events-by-session");
+
+eventsBySession.put("session:abc", "login");
+eventsBySession.put("session:abc", "view:home");
+eventsBySession.put("session:abc", "view:home"); // duplicates kept, in order
+
+// expire the whole group if the session goes idle
+eventsBySession.expireKey("session:abc", 30, TimeUnit.MINUTES);
+
+List<String> timeline = eventsBySession.getAll("session:abc");
+```
 
 ## JSON Store
 
 _This feature is available only in [Redisson PRO](https://redisson.pro/feature-comparison.html) edition._
 
-[RJsonStore](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RJsonStore.html) is a distributed Key Value store for JSON objects. Compatible with Valkey and Redis. This object is thread-safe. Allows to store JSON value mapped by key. Operations can be executed per key or group of keys. Value is stored/retrieved using `JSON.*` commands. Both key and value are POJO objects. 
+[RJsonStore](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RJsonStore.html) is a distributed store of JSON documents, compatible with Valkey and Redis, and thread-safe. Each value is a POJO serialized to JSON and stored under a key with native `JSON.*` commands, so a stored document is not an opaque blob: individual fields, array elements, and numeric counters can be read and updated in place on the server - addressed by [JSONPath](https://redis.io/docs/latest/develop/data-types/json/path/) - without transferring the whole value. Operations run on a single key or on a group of keys in one round trip.
 
-Allows to define `time to live` parameter per entry. Doesn't use an entry eviction task, entries are cleaned on Valkey or Redis side.
+Entries can carry a per-entry `time to live` that is cleaned up on the server side with no eviction task, and can be indexed and queried by their fields through [RediSearch integration](#search-by-object-properties). A [local cache](#local-cache) variant serves hot reads without a network round trip.
 
-Code example of **[Async](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RJsonStoreAsync.html) interface** usage:
+### When to use JSON Store
 
-```java
-RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec(MyObject.class));
-```
+Reach for `RJsonStore` instead of an `RMap` or `RBucket` of serialized objects when you need any of the following: updating part of a document in place - setting a field, pushing onto an array, incrementing a counter - without loading and rewriting the whole value, which also removes the read-modify-write race; a per-entry `time to live`; or field-level search through RediSearch.
 
-Code example of **[Reactive](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RJsonStoreReactive.html) interface** usage:
+### Basic usage
 
-```java
-RedissonReactiveClient redisson = redissonClient.reactive();
-RJsonStoreReactive<AnyObject> bucket = redisson.getJsonStore("anyObject", new JacksonCodec<>(AnyObject.class));
-```
+An instance is obtained from the Redisson client with the document codec (and optionally a key codec). The synchronous, asynchronous, reactive, and RxJava3 interfaces share the same methods and differ only in their return types - `RFuture`, `Mono`, and `Single`/`Maybe`/`Completable`.
 
-Code example of **[RxJava3](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RJsonStoreRx.html) interface** usage:
-```java
-RedissonRxClient redisson = redissonClient.rxJava();
-RJsonStoreRx<AnyObject> bucket = redisson.getJsonStore("anyObject", new JacksonCodec<>(AnyObject.class));
-```
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
 
-Data write code example:
-```java
-RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec(MyObject.class));
+    MyObject obj = ...;
 
-MyObject t1 = new MyObject();
-t1.setName("name1");
-MyObject t2 = new MyObject();
-t2.setName("name2");
+    store.set("1", obj);
+    MyObject value = store.get("1");
+    boolean removed = store.delete("1");
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
 
-Map<String, MyObject> entries = new HashMap<>();
-entries.put("1", t1);
-entries.put("2", t2);
+    MyObject obj = ...;
 
-// multiple entries at once
-store.set(entries);
+    RFuture<Void> setFuture = store.setAsync("1", obj);
+    RFuture<MyObject> getFuture = store.getAsync("1");
+    RFuture<Boolean> deleteFuture = store.deleteAsync("1");
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
 
-// or set entry per call
-store.set("1", t1);
-store.set("2", t2);
+    MyObject obj = ...;
 
-// with ttl
-store.set("1", t1, Duration.ofSeconds(100));
+    Mono<Void> setMono = store.set("1", obj);
+    Mono<MyObject> getMono = store.get("1");
+    Mono<Boolean> deleteMono = store.delete("1");
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
 
-// set if not set previously
-store.setIfAbsent("1", t1);
+    MyObject obj = ...;
 
-// set if entry already exists
-store.setIfExists("1", t1);
-```
+    Completable setRx = store.set("1", obj);
+    Maybe<MyObject> getRx = store.get("1");
+    Single<Boolean> deleteRx = store.delete("1");
+    ```
 
-Data read code example:
-```java
-RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec(MyObject.class));
+### Storing documents
 
-// multiple entries at once
-Map<String, MyObject> entries = store.get(Set.of("1", "2"));
+`set` writes a document, overwriting any previous value, and `set(Map)` stores many documents in a single call. A `Duration` overload attaches a per-entry `time to live`. `setIfAbsent` writes only when the key is new and `setIfExists` only when it already exists; both also have `Duration` overloads.
 
-// or read entry per call
-MyObject value1 = store.get("1");
-MyObject value2 = store.get("2");
-```
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
 
-Data deletion code example:
-```java
-RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec(MyObject.class));
+    store.set("1", t1);
+    store.set(Map.of("1", t1, "2", t2));
+    store.set("1", t1, Duration.ofSeconds(100)); // per-entry TTL
+    boolean stored = store.setIfAbsent("1", t1);
+    boolean updated = store.setIfExists("1", t1);
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
 
-// multiple entries at once
-long deleted = store.delete(Set.of("1", "2"));
+    RFuture<Void> f1 = store.setAsync("1", t1);
+    RFuture<Void> f2 = store.setAsync(Map.of("1", t1, "2", t2));
+    RFuture<Void> f3 = store.setAsync("1", t1, Duration.ofSeconds(100));
+    RFuture<Boolean> f4 = store.setIfAbsentAsync("1", t1);
+    RFuture<Boolean> f5 = store.setIfExistsAsync("1", t1);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
 
-// or delete entry per call
-boolean status = store.delete("1");
-boolean status = store.delete("2");
-```
+    Mono<Void> m1 = store.set("1", t1);
+    Mono<Void> m2 = store.set(Map.of("1", t1, "2", t2));
+    Mono<Void> m3 = store.set("1", t1, Duration.ofSeconds(100));
+    Mono<Boolean> m4 = store.setIfAbsent("1", t1);
+    Mono<Boolean> m5 = store.setIfExists("1", t1);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
 
-Keys access code examples:
-```java
-RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec(MyObject.class));
+    Completable c1 = store.set("1", t1);
+    Completable c2 = store.set(Map.of("1", t1, "2", t2));
+    Completable c3 = store.set("1", t1, Duration.ofSeconds(100));
+    Single<Boolean> s4 = store.setIfAbsent("1", t1);
+    Single<Boolean> s5 = store.setIfExists("1", t1);
+    ```
 
-// iterate keys
-Set<String> keys = store.keySet();
+### Reading documents
 
-// read all keys at once
-Set<String> keys = store.readAllKeySet();
-```
+`get` returns a single document, or `null` if the key is absent; `get(Set)` reads many keys in one round trip and returns a map of the present entries; and `getAndDelete` reads a document and removes it atomically. `readAllKeySet` returns every key at once, while the synchronous `keySet` iterates keys lazily with the server's `SCAN` cursor and accepts an optional pattern and batch count.
+
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    MyObject value = store.get("1");
+    Map<String, MyObject> many = store.get(Set.of("1", "2"));
+    MyObject taken = store.getAndDelete("1");
+    Set<String> allKeys = store.readAllKeySet();
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    RFuture<MyObject> getFuture = store.getAsync("1");
+    RFuture<Map<String, MyObject>> manyFuture = store.getAsync(Set.of("1", "2"));
+    RFuture<MyObject> takenFuture = store.getAndDeleteAsync("1");
+    RFuture<Set<String>> keysFuture = store.readAllKeySetAsync();
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Mono<MyObject> getMono = store.get("1");
+    Mono<Map<String, MyObject>> manyMono = store.get(Set.of("1", "2"));
+    Mono<MyObject> takenMono = store.getAndDelete("1");
+    Mono<Set<String>> keysMono = store.readAllKeySet();
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Maybe<MyObject> getRx = store.get("1");
+    Single<Map<String, MyObject>> manyRx = store.get(Set.of("1", "2"));
+    Maybe<MyObject> takenRx = store.getAndDelete("1");
+    Single<Set<String>> keysRx = store.readAllKeySet();
+    ```
+
+### Deleting documents
+
+`delete` removes a single key and reports whether it existed; `delete(Set)` removes many keys in one call and returns how many were present.
+
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    boolean removed = store.delete("1");
+    long count = store.delete(Set.of("1", "2"));
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    RFuture<Boolean> removedFuture = store.deleteAsync("1");
+    RFuture<Long> countFuture = store.deleteAsync(Set.of("1", "2"));
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Mono<Boolean> removedMono = store.delete("1");
+    Mono<Long> countMono = store.delete(Set.of("1", "2"));
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Single<Boolean> removedRx = store.delete("1");
+    Single<Long> countRx = store.delete(Set.of("1", "2"));
+    ```
+
+### Working inside a document
+
+Because each value is a JSON document, parts of it can be read and modified by [JSONPath](https://redis.io/docs/latest/develop/data-types/json/path/) - evaluated entirely on the server, without fetching or rewriting the whole value. Each operation takes a path; the typed reads (`get`, `arrayPop`, and similar) take a `JsonCodec` - a `JacksonCodec` of the extracted type - to decode the sub-value. Most operations have a `*Multi` companion (`arrayAppendMulti`, `incrementAndGetMulti`, ...) that applies to every location a multi-valued path matches and returns one result per match.
+
+**Fields and structure**
+
+`set(key, path, value)` writes a single field, `merge` merges a partial object into the document, the path form of `get` extracts a typed sub-value, and `getType`/`countKeys`/`getKeys` inspect structure.
+
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    store.set("1", "$.name", "name2");
+    store.merge("1", "$", new MyObject());
+    String name = store.get("1", new JacksonCodec<>(String.class), "$.name");
+    JsonType type = store.getType("1", "$.name");
+    long fields = store.countKeys("1");
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    RFuture<Void> setFuture = store.setAsync("1", "$.name", "name2");
+    RFuture<Void> mergeFuture = store.mergeAsync("1", "$", new MyObject());
+    RFuture<String> nameFuture = store.getAsync("1", new JacksonCodec<>(String.class), "$.name");
+    RFuture<JsonType> typeFuture = store.getTypeAsync("1", "$.name");
+    RFuture<Long> fieldsFuture = store.countKeysAsync("1");
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Mono<Void> setMono = store.set("1", "$.name", "name2");
+    Mono<Void> mergeMono = store.merge("1", "$", new MyObject());
+    Mono<String> nameMono = store.get("1", new JacksonCodec<>(String.class), "$.name");
+    Mono<JsonType> typeMono = store.getType("1", "$.name");
+    Mono<Long> fieldsMono = store.countKeys("1");
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Completable setRx = store.set("1", "$.name", "name2");
+    Completable mergeRx = store.merge("1", "$", new MyObject());
+    Maybe<String> nameRx = store.get("1", new JacksonCodec<>(String.class), "$.name");
+    Single<JsonType> typeRx = store.getType("1", "$.name");
+    Maybe<Long> fieldsRx = store.countKeys("1");
+    ```
+
+**Arrays**
+
+`arrayAppend` and `arrayInsert` add elements, `arraySize` reports the length, and `arrayPop` removes and returns an element at an index (`-1` for the last).
+
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    long size = store.arrayAppend("1", "$.tags", "premium");
+    long size2 = store.arrayInsert("1", "$.tags", 0, "vip");
+    long length = store.arraySize("1", "$.tags");
+    String last = store.arrayPop("1", new JacksonCodec<>(String.class), "$.tags", -1);
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    RFuture<Long> appendFuture = store.arrayAppendAsync("1", "$.tags", "premium");
+    RFuture<Long> insertFuture = store.arrayInsertAsync("1", "$.tags", 0, "vip");
+    RFuture<Long> lengthFuture = store.arraySizeAsync("1", "$.tags");
+    RFuture<String> lastFuture = store.arrayPopAsync("1", new JacksonCodec<>(String.class), "$.tags", -1);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Mono<Long> appendMono = store.arrayAppend("1", "$.tags", "premium");
+    Mono<Long> insertMono = store.arrayInsert("1", "$.tags", 0L, "vip");
+    Mono<Long> lengthMono = store.arraySize("1", "$.tags");
+    Mono<String> lastMono = store.arrayPop("1", new JacksonCodec<>(String.class), "$.tags", -1L);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Single<Long> appendRx = store.arrayAppend("1", "$.tags", "premium");
+    Single<Long> insertRx = store.arrayInsert("1", "$.tags", 0L, "vip");
+    Single<Long> lengthRx = store.arraySize("1", "$.tags");
+    Maybe<String> lastRx = store.arrayPop("1", new JacksonCodec<>(String.class), "$.tags", -1L);
+    ```
+
+**Numbers, booleans, and strings**
+
+`incrementAndGet` atomically bumps a numeric field, `toggle` flips a boolean, and `stringAppend` appends to a string field, returning its new length.
+
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Integer views = store.incrementAndGet("1", "$.views", 1);
+    boolean active = store.toggle("1", "$.active");
+    long length = store.stringAppend("1", "$.name", " (verified)");
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    RFuture<Integer> viewsFuture = store.incrementAndGetAsync("1", "$.views", 1);
+    RFuture<Boolean> activeFuture = store.toggleAsync("1", "$.active");
+    RFuture<Long> lengthFuture = store.stringAppendAsync("1", "$.name", " (verified)");
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Mono<Integer> viewsMono = store.incrementAndGet("1", "$.views", 1);
+    Mono<Boolean> activeMono = store.toggle("1", "$.active");
+    Mono<Long> lengthMono = store.stringAppend("1", "$.name", " (verified)");
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Maybe<Integer> viewsRx = store.incrementAndGet("1", "$.views", 1);
+    Single<Boolean> activeRx = store.toggle("1", "$.active");
+    Single<Long> lengthRx = store.stringAppend("1", "$.name", " (verified)");
+    ```
+
+### Atomic and conditional updates
+
+`compareAndSet` swaps a document only if it currently equals an expected value, and its path form does the same for a single field. `getAndSet` replaces a document and returns the previous value. The conditional `setIfAbsent`/`setIfExists` shown under [Storing documents](#storing-documents) round out this group.
+
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    boolean swapped = store.compareAndSet("1", t1, t2);
+    boolean fieldSwapped = store.compareAndSet("1", "$.name", "name1", "name2");
+    MyObject previous = store.getAndSet("1", t2);
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    RFuture<Boolean> swapFuture = store.compareAndSetAsync("1", t1, t2);
+    RFuture<Boolean> fieldFuture = store.compareAndSetAsync("1", "$.name", "name1", "name2");
+    RFuture<MyObject> prevFuture = store.getAndSetAsync("1", t2);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Mono<Boolean> swapMono = store.compareAndSet("1", t1, t2);
+    Mono<Boolean> fieldMono = store.compareAndSet("1", "$.name", "name1", "name2");
+    Mono<MyObject> prevMono = store.getAndSet("1", t2);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Single<Boolean> swapRx = store.compareAndSet("1", t1, t2);
+    Single<Boolean> fieldRx = store.compareAndSet("1", "$.name", "name1", "name2");
+    Maybe<MyObject> prevRx = store.getAndSet("1", t2);
+    ```
+
+### Expiration
+
+A per-entry `time to live` is attached when writing (`set` with a `Duration`); expiration is handled on the Valkey or Redis side with no eviction task. `getAndExpire` reads a document and (re)sets its expiration in one step, `remainTimeToLive` reports the milliseconds left, and `setAndKeepTTL` overwrites a value while preserving its current expiration.
+
+=== "Sync"
+    ```java
+    RJsonStore<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    store.set("1", t1, Duration.ofSeconds(100));
+    MyObject value = store.getAndExpire("1", Duration.ofMinutes(5));
+    long ttl = store.remainTimeToLive("1");
+    store.setAndKeepTTL("1", t2);
+    ```
+=== "Async"
+    ```java
+    RJsonStoreAsync<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    RFuture<Void> setFuture = store.setAsync("1", t1, Duration.ofSeconds(100));
+    RFuture<MyObject> getFuture = store.getAndExpireAsync("1", Duration.ofMinutes(5));
+    RFuture<Long> ttlFuture = store.remainTimeToLiveAsync("1");
+    RFuture<Void> keepFuture = store.setAndKeepTTLAsync("1", t2);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RJsonStoreReactive<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Mono<Void> setMono = store.set("1", t1, Duration.ofSeconds(100));
+    Mono<MyObject> getMono = store.getAndExpire("1", Duration.ofMinutes(5));
+    Mono<Long> ttlMono = store.remainTimeToLive("1");
+    Mono<Void> keepMono = store.setAndKeepTTL("1", t2);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RJsonStoreRx<String, MyObject> store = redisson.getJsonStore("test", new JacksonCodec<>(MyObject.class));
+
+    Completable setRx = store.set("1", t1, Duration.ofSeconds(100));
+    Maybe<MyObject> getRx = store.getAndExpire("1", Duration.ofMinutes(5));
+    Single<Long> ttlRx = store.remainTimeToLive("1");
+    Completable keepRx = store.setAndKeepTTL("1", t2);
+    ```
+
+These TTLs apply to individual entries. The store itself implements [RExpirable](common-methods.md#expiration), so `expire` and `clearExpire` set an expiration on the entire store, which is a separate mechanism from the per-entry expiration above.
 
 ### Search by Object properties
+
+Because values are stored as JSON, a JSON Store can be indexed and queried by the fields of its documents through [RediSearch](services.md#redisearch-service). Point lookups by key and ad-hoc field queries then run against the same data, with no separate search system to keep in sync.
 
 For data searching, index prefix should be defined in `<object_name>:` format. For example for object name "test" prefix is "test:".
 
@@ -914,7 +1483,7 @@ s.createIndex("idx", IndexOptions.defaults()
                         .prefix(Arrays.asList("test:")),
                     FieldIndex.text("name"));
 
-RJsonStore<String, MyObject> store = redisson.getJsonStore("test", StringCodec.INSTANCE, new JacksonCodec(MyObject.class));
+RJsonStore<String, MyObject> store = redisson.getJsonStore("test", StringCodec.INSTANCE, new JacksonCodec<>(MyObject.class));
 
 MyObject t1 = new MyObject();
 t1.setName("name1");
@@ -1029,10 +1598,6 @@ Map<String, MyObject> entries = new HashMap<>();
 entries.put("1", t1);
 entries.put("2", t2);
 
-Map<String, MyObject> entries = new HashMap<>();
-entries.put("1", t1);
-entries.put("2", t2);
-
 // multiple entries at once
 store.set(entries);
 
@@ -1080,21 +1645,310 @@ boolean status = store.delete("1");
 boolean status = store.delete("2");
 ```
 
-## Set
-Valkey or Redis based [Set](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSet.html) object for Java implements [Set](https://docs.oracle.com/javase/8/docs/api/java/util/Set.html) interface. This object is thread-safe. Keeps elements uniqueness via element state comparison. Set size limited to `4 294 967 295` elements. Valkey or Redis uses serialized state to check value uniqueness instead of value's `hashCode()`/`equals()` methods.
+### Use Cases
 
-It has [Async](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetAsync.html), [Reactive](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetReactive.html) and [RxJava3](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetRx.html) interfaces.
+JSON Store fits applications that keep many structured records — each a self-contained JSON document addressed by a key — where individual entries are read, written, expired, and queried independently. Values are stored with `JSON.*` commands, expiration is handled on the Valkey or Redis side without an eviction task, many keys can be read or written in a single round trip, and entries can be indexed and queried by their fields through [RediSearch integration](#search-by-object-properties).
+
+**Session and Token Store**
+
+Web sessions, refresh tokens, and short-lived authorization grants are rich objects (user id, roles, device metadata, issue/expiry timestamps) that map one-to-one to a key and should disappear automatically once they lapse. A `time to live` is attached per entry so cleanup happens on the Valkey or Redis side with no eviction task, while `setIfExists` refreshes only sessions that are still active.
 
 ```java
-RSet<SomeObject> set = redisson.getSet("anySet");
-set.add(new SomeObject());
-set.remove(new SomeObject());
+RJsonStore<String, Session> sessions =
+        redisson.getJsonStore("session", new JacksonCodec<>(Session.class));
+
+Session s = new Session(userId, roles, deviceId, Instant.now());
+
+// store the session with a 30-minute TTL, expiry handled on the Valkey or Redis side
+sessions.set("sess:" + sessionId, s, Duration.ofMinutes(30));
+
+// validate by key on each incoming request
+Session current = sessions.get("sess:" + sessionId);
+
+// sliding refresh - only extend a session that still exists
+sessions.setIfExists("sess:" + sessionId, current);
+
+// explicit logout
+sessions.delete("sess:" + sessionId);
 ```
-RSet object allows to bind a [Lock](locks-and-synchronizers.md/#lock)/[ReadWriteLock](locks-and-synchronizers.md/#readwritelock)/[Semaphore](locks-and-synchronizers.md/#semaphore)/[CountDownLatch](locks-and-synchronizers.md/#countdownlatch) object per value:
+
+**Searchable Document Store**
+
+User profiles, product catalogs, and other entity records are stored as JSON documents and queried by field rather than only by key. With a JSON index defined over the store's key prefix, the same data backs both point lookups by id and ad-hoc field queries, full-text matching, and aggregation, without copying it into a separate search system. `StringCodec` is used for keys so fields are indexable.
+
+```java
+RSearch search = redisson.getSearch();
+search.createIndex("idx:product", IndexOptions.defaults()
+                        .on(IndexType.JSON)
+                        .prefix(Arrays.asList("product:")),
+                    FieldIndex.text("name"));
+
+RJsonStore<String, Product> products =
+        redisson.getJsonStore("product", StringCodec.INSTANCE, new JacksonCodec<>(Product.class));
+products.set("product:1001", new Product("Wireless Mouse"));
+
+// point lookup by id
+Product p = products.get("product:1001");
+
+// field query backed by the same data - full-text match on the name field
+SearchResult found = search.search("idx:product", "@name:wireless", QueryOptions.defaults()
+                                                  .returnAttributes(new ReturnAttribute("name")));
 ```
+
+**Shopping Carts and Workflow State**
+
+Carts, checkout sessions, multi-step form drafts, and long-running workflow state are JSON documents that change over their lifetime and are often touched in groups - load every cart in a batch job, expire abandoned ones, or purge a customer's drafts at once. Bulk `set`, `get`, and `delete` over a set of keys collapse these into a single round trip, while a per-entry `time to live` reclaims abandoned state automatically.
+
+```java
+RJsonStore<String, Cart> carts =
+        redisson.getJsonStore("cart", new JacksonCodec<>(Cart.class));
+
+// write several carts at once
+Map<String, Cart> batch = new HashMap<>();
+batch.put("cart:a1", cartA);
+batch.put("cart:b2", cartB);
+carts.set(batch);
+
+// abandoned-cart expiry handled on the Valkey or Redis side
+carts.set("cart:a1", cartA, Duration.ofHours(24));
+
+// read or purge a group of carts in one call
+Map<String, Cart> loaded = carts.get(Set.of("cart:a1", "cart:b2"));
+long removed = carts.delete(Set.of("cart:a1", "cart:b2"));
+```
+
+**Read-Heavy Reference Data with Local Cache**
+
+Feature configuration, pricing tables, and catalog metadata are read constantly but updated rarely, and for these the network round trip dominates cost. The [local cached](#local-cache) JSON Store keeps entries on the Redisson side for reads up to **45x faster** than the regular implementation, while a shared pub/sub channel invalidates cached copies across all instances whenever an entry changes, so every node converges on the latest value.
+
+```java
+LocalCachedJsonStoreOptions options = LocalCachedJsonStoreOptions.name("pricing")
+                .keyCodec(StringCodec.INSTANCE)
+                .valueCodec(new JacksonCodec<>(PricingRule.class))
+                .syncStrategy(SyncStrategy.INVALIDATE)
+                .evictionPolicy(EvictionPolicy.LRU)
+                .cacheSize(10000);
+RLocalCachedJsonStore<String, PricingRule> pricing = redisson.getLocalCachedJsonStore(options);
+
+// served from the local cache after the first read, no network round trip
+PricingRule rule = pricing.get("rule:default");
+
+// this update is propagated to every other instance's local cache
+pricing.set("rule:default", updatedRule);
+```
+
+## Set
+
+Redisson's [RSet](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSet.html) is a distributed implementation of Java's [Set](https://docs.oracle.com/javase/8/docs/api/java/util/Set.html) interface, backed by a Valkey or Redis set. It is thread-safe, cluster-compatible, holds up to 4,294,967,295 elements, and is available through synchronous, [asynchronous](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetAsync.html), [reactive](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetReactive.html), and [RxJava3](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetRx.html) interfaces.
+
+Element uniqueness is determined by the serialized form of the element rather than by its `hashCode()`/`equals()` methods. `RSet` also implements [RExpirable](common-methods.md#expiration), so an expiration can be set on the set as a whole; expiring individual elements is a separate feature, described under [Entry eviction and TTL](#entry-eviction-and-ttl).
+
+Variants add per-element eviction and data partitioning across a cluster, summarized under [Choosing a Set implementation](#choosing-a-set-implementation).
+
+### Basic operations
+
+`add`, `remove`, and `contains` operate on single elements, while `addAll`, `removeAll`, `retainAll`, and `containsAll` operate on collections. `tryAdd` adds one or more elements only if all of them are absent, returning whether the set changed.
+
+=== "Sync"
+    ```java
+    RSet<SomeObject> set = redisson.getSet("mySet");
+
+    boolean added = set.add(new SomeObject());
+    boolean removed = set.remove(new SomeObject());
+    boolean exists = set.contains(new SomeObject());
+    boolean changed = set.tryAdd(new SomeObject(), new SomeObject());
+    int size = set.size();
+    ```
+=== "Async"
+    ```java
+    RSetAsync<SomeObject> set = redisson.getSet("mySet");
+
+    RFuture<Boolean> added = set.addAsync(new SomeObject());
+    RFuture<Boolean> removed = set.removeAsync(new SomeObject());
+    RFuture<Boolean> exists = set.containsAsync(new SomeObject());
+    RFuture<Boolean> changed = set.tryAddAsync(new SomeObject(), new SomeObject());
+    RFuture<Integer> size = set.sizeAsync();
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RSetReactive<SomeObject> set = redisson.getSet("mySet");
+
+    Mono<Boolean> added = set.add(new SomeObject());
+    Mono<Boolean> removed = set.remove(new SomeObject());
+    Mono<Boolean> exists = set.contains(new SomeObject());
+    Mono<Boolean> changed = set.tryAdd(new SomeObject(), new SomeObject());
+    Mono<Integer> size = set.size();
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RSetRx<SomeObject> set = redisson.getSet("mySet");
+
+    Single<Boolean> added = set.add(new SomeObject());
+    Single<Boolean> removed = set.remove(new SomeObject());
+    Single<Boolean> exists = set.contains(new SomeObject());
+    Single<Boolean> changed = set.tryAdd(new SomeObject(), new SomeObject());
+    Single<Integer> size = set.size();
+    ```
+
+### Set algebra
+
+Sets can be combined with other named sets on the server. The `read*` methods return the result and combine the named sets with this set, leaving it unchanged; `union`, `diff`, and `intersection` instead compute the combination of the named sets, **overwrite this set** with the result, and return its new size. `countIntersection` returns the size of an intersection without materializing it.
+
+!!! note
+    `union`, `diff`, and `intersection` overwrite this set with the result. Use `readUnion`, `readDiff`, and `readIntersection` to combine sets without changing this one.
+
+=== "Sync"
+    ```java
+    RSet<SomeObject> set = redisson.getSet("mySet");
+
+    // non-destructive: returns the result, this set is unchanged
+    Set<SomeObject> u = set.readUnion("set2", "set3");
+    Set<SomeObject> i = set.readIntersection("set2");
+    Set<SomeObject> d = set.readDiff("set2");
+
+    // destructive: overwrites this set, returns the new size
+    int unionSize = set.union("set2", "set3");
+
+    Integer common = set.countIntersection("set2");
+    ```
+=== "Async"
+    ```java
+    RSetAsync<SomeObject> set = redisson.getSet("mySet");
+
+    RFuture<Set<SomeObject>> u = set.readUnionAsync("set2", "set3");
+    RFuture<Set<SomeObject>> i = set.readIntersectionAsync("set2");
+    RFuture<Set<SomeObject>> d = set.readDiffAsync("set2");
+
+    RFuture<Integer> unionSize = set.unionAsync("set2", "set3");
+
+    RFuture<Integer> common = set.countIntersectionAsync("set2");
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RSetReactive<SomeObject> set = redisson.getSet("mySet");
+
+    Mono<Set<SomeObject>> u = set.readUnion("set2", "set3");
+    Mono<Set<SomeObject>> i = set.readIntersection("set2");
+    Mono<Set<SomeObject>> d = set.readDiff("set2");
+
+    Mono<Integer> unionSize = set.union("set2", "set3");
+
+    Mono<Integer> common = set.countIntersection("set2");
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RSetRx<SomeObject> set = redisson.getSet("mySet");
+
+    Maybe<Set<SomeObject>> u = set.readUnion("set2", "set3");
+    Maybe<Set<SomeObject>> i = set.readIntersection("set2");
+    Maybe<Set<SomeObject>> d = set.readDiff("set2");
+
+    Single<Integer> unionSize = set.union("set2", "set3");
+
+    Single<Integer> common = set.countIntersection("set2");
+    ```
+
+### Random elements and moving
+
+`random` returns a random element, or a subset, without removing it; `removeRandom` pops one or several elements at random; and `move` atomically transfers an element to another set.
+
+=== "Sync"
+    ```java
+    RSet<SomeObject> set = redisson.getSet("mySet");
+
+    SomeObject one = set.random();
+    Set<SomeObject> some = set.random(3);
+
+    SomeObject popped = set.removeRandom();
+    Set<SomeObject> poppedMany = set.removeRandom(2);
+
+    boolean moved = set.move("otherSet", one);
+    ```
+=== "Async"
+    ```java
+    RSetAsync<SomeObject> set = redisson.getSet("mySet");
+
+    RFuture<SomeObject> one = set.randomAsync();
+    RFuture<Set<SomeObject>> some = set.randomAsync(3);
+
+    RFuture<SomeObject> popped = set.removeRandomAsync();
+    RFuture<Set<SomeObject>> poppedMany = set.removeRandomAsync(2);
+
+    RFuture<Boolean> moved = set.moveAsync("otherSet", one);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RSetReactive<SomeObject> set = redisson.getSet("mySet");
+
+    Mono<SomeObject> one = set.random();
+    Mono<Set<SomeObject>> some = set.random(3);
+
+    Mono<SomeObject> popped = set.removeRandom();
+    Mono<Set<SomeObject>> poppedMany = set.removeRandom(2);
+
+    Mono<Boolean> moved = set.move("otherSet", one);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RSetRx<SomeObject> set = redisson.getSet("mySet");
+
+    Maybe<SomeObject> one = set.random();
+    Maybe<Set<SomeObject>> some = set.random(3);
+
+    Maybe<SomeObject> popped = set.removeRandom();
+    Maybe<Set<SomeObject>> poppedMany = set.removeRandom(2);
+
+    Single<Boolean> moved = set.move("otherSet", one);
+    ```
+
+### Iterating
+
+`readAll` pulls the whole set into memory in a single call - convenient for small sets, expensive for large ones.
+
+=== "Sync"
+    ```java
+    RSet<SomeObject> set = redisson.getSet("mySet");
+
+    Set<SomeObject> all = set.readAll();
+    ```
+=== "Async"
+    ```java
+    RSetAsync<SomeObject> set = redisson.getSet("mySet");
+
+    RFuture<Set<SomeObject>> all = set.readAllAsync();
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RSetReactive<SomeObject> set = redisson.getSet("mySet");
+
+    Mono<Set<SomeObject>> all = set.readAll();
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RSetRx<SomeObject> set = redisson.getSet("mySet");
+
+    Maybe<Set<SomeObject>> all = set.readAll();
+    ```
+
+To traverse a large set without loading it all at once, the synchronous `iterator()` streams elements through the server's `SCAN` cursor, and `distributedIterator` spreads the scan across a cluster.
+
+### Per-value locks
+
+An `RSet` can bind a [lock](locks-and-synchronizers.md#lock), [read/write lock](locks-and-synchronizers.md#readwritelock), or [semaphore](locks-and-synchronizers.md#semaphore) to an individual element, which is convenient for guarding work on one member.
+
+```java
 RSet<MyObject> set = redisson.getSet("anySet");
 MyObject value = new MyObject();
-RLock lock = map.getLock(value);
+
+RLock lock = set.getLock(value);
 lock.lock();
 try {
    // process value ...
@@ -1103,60 +1957,51 @@ try {
 }
 ```
 
-### Eviction and data partitioning
+### Choosing a Set implementation
 
-Redisson provides various Set structure implementations with a few important features:  
+Every implementation shares the operations above and differs in two capabilities - per-element eviction and data partitioning across a cluster - plus whether it requires [Redisson PRO](https://redisson.pro/feature-comparison.html). Data-partitioned sets (`getClusteredSet` and `getClusteredSetCache`) implement `RClusteredSet` and scale a single logical set across master nodes; see [data partitioning](data-partitioning.md). The table lists the main entry points, and the [feature comparison](https://redisson.pro/feature-comparison.html) enumerates every variant; in PRO, all types additionally provide ultra-fast read/write.
 
-**data partitioning** - although any Set object is cluster compatible its content isn't scaled/partitioned across multiple master nodes in cluster. Data partitioning allows to scale available memory, read/write operations and entry eviction process for individual Set instance in cluster.  
+| Client method | Data partitioning | Per-element eviction | Availability |
+| ------------- | :---------------: | :------------------: | ------------ |
+| `getSet()` | ❌ | ❌ | open-source |
+| `getSetCache()` | ❌ | ✔️ (scripted) | open-source |
+| `getSetCacheV2()` | ✔️ | ✔️ (server-side) | PRO |
+| `getClusteredSet()` | ✔️ | ❌ | PRO |
+| `getClusteredSetCache()` | ✔️ | ✔️ | PRO |
 
-**entry eviction** - allows to define `time to live` parameter per SetCache entry. Valkey or Redis set structure doesn't support eviction thus it's done on Redisson side through a custom scheduled task which removes expired entries using Lua script. Eviction task is started once per unique object name at the moment of getting SetCache instance. If instance isn't used and has expired entries it should be get again to start the eviction process. This leads to extra Valkey or Redis calls and eviction task per unique SetCache object name. 
+### Entry eviction and TTL
 
-Entries are cleaned time to time by `org.redisson.eviction.EvictionScheduler`. By default, it removes 100 expired entries at a time. This can be changed through [cleanUpKeysAmount](../configuration.md) setting. Task launch time tuned automatically and depends on expired entries amount deleted in previous time and varies between 5 second to 30 minutes by default. This time interval can be changed through [minCleanUpDelay](../configuration.md) and [maxCleanUpDelay](../configuration.md). For example, if clean task deletes 100 entries each time it will be executed every 5 seconds (minimum execution delay). But if current expired entries amount is lower than previous one then execution delay will be increased by 1.5 times and decreased otherwise.
+Beyond the whole-set expiration that `RSet` inherits from `RExpirable`, the cache implementations attach a `time to live` to individual elements. `RSetCache` removes expired elements with a Redisson eviction task (one task per unique name, with extra calls; call `destroy()` when the instance is no longer used), while `RSetCacheV2` cleans them on the Valkey or Redis side without a task. `add` takes the TTL as arguments.
 
-**advanced entry eviction** - improved version of the **entry eviction** process. Doesn't use an entry eviction task.
+=== "Sync"
+    ```java
+    RSetCache<SomeObject> set = redisson.getSetCache("mySet");
 
-**Eviction**
+    // ttl = 10 minutes
+    set.add(new SomeObject(), 10, TimeUnit.MINUTES);
 
-Set object with eviction support implements [RSetCache](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetCache.html),  [Async](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetCacheAsync.html), [Reactive](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetCacheReactive.html) and [RxJava3](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSetCacheRx.html) interfaces.
+    set.destroy(); // when no longer used (scripted eviction)
+    ```
+=== "Async"
+    ```java
+    RSetCacheAsync<SomeObject> set = redisson.getSetCache("mySet");
 
-Code example:
-```java
-RSetCache<SomeObject> set = redisson.getSetCache("mySet");
-// or
-RMapCache<SomeObject> set = redisson.getClusteredSetCache("mySet");
+    RFuture<Boolean> added = set.addAsync(new SomeObject(), 10, TimeUnit.MINUTES);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RSetCacheReactive<SomeObject> set = redisson.getSetCache("mySet");
 
-// ttl = 10 minutes, 
-set.add(new SomeObject(), 10, TimeUnit.MINUTES);
+    Mono<Boolean> added = set.add(new SomeObject(), 10, TimeUnit.MINUTES);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RSetCacheRx<SomeObject> set = redisson.getSetCache("mySet");
 
-// if object is not used anymore
-map.destroy();
-```
-
-**Data partitioning**
-Map object with data partitioning support implements `org.redisson.api.RClusteredSet`. Read more details about data partitioning [here](data-partitioning.md).
-
-Code example:
-
-```java
-RClusteredSet<SomeObject> set = redisson.getClusteredSet("mySet");
-// or
-RClusteredSet<SomeObject> set = redisson.getClusteredSetCache("mySet");
-
-// ttl = 10 minutes, 
-map.add(new SomeObject(), 10, TimeUnit.MINUTES);
-```
-
-Below is the list of all available Set implementations:  
-
-|RedissonClient <br/> method name | Data<br/>partitioning | Entry<br/>eviction | Advanced<br/>entry eviction | Ultra-fast<br/>read/write |
-| ------------- | :----------:| :----------:| :----------:| :----------:|
-|getSet()<br/><sub><i>open-source version</i></sub> | ❌ | ❌ | ❌ | ❌ |
-|getSetCache()<br/><sub><i>open-source version</i></sub> | ❌ | ✔️ | ❌ | ❌ |
-|getSet()<br/><sub><i>[Redisson PRO](https://redisson.pro/feature-comparison.html) version</i></sub> | ❌ | ❌ | ❌ | ✔️ |
-|getSetCache()<br/><sub><i>[Redisson PRO](https://redisson.pro/feature-comparison.html) version</i></sub> | ❌ | ✔️ | ❌ | ✔️ |
-|getSetCacheV2()<br/><sub><i>available only in [Redisson PRO](https://redisson.pro/feature-comparison.html)</i></sub> | ✔️ | ❌ | ✔️ | ✔️ |
-|getClusteredSet()<br/><sub><i>available only in [Redisson PRO](https://redisson.pro/feature-comparison.html)</i></sub> | ✔️ | ❌ | ❌ | ✔️ |
-|getClusteredSetCache()<br/><sub><i>available only in [Redisson PRO](https://redisson.pro/feature-comparison.html)</i></sub> | ✔️ | ✔️ | ❌ | ✔️ |
+    Single<Boolean> added = set.add(new SomeObject(), 10, TimeUnit.MINUTES);
+    ```
 
 ### Listeners
 
@@ -1189,34 +2034,388 @@ set.removeListener(listenerId);
 ```
 
 ## SortedSet
-Valkey or Redis based distributed [SortedSet](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSortedSet.html) for Java implements [SortedSet](https://docs.oracle.com/javase/8/docs/api/java/util/SortedSet.html) interface. This object is thread-safe. It uses comparator to sort elements and keep uniqueness. For String data type it's recommended to use [LexSortedSet](#lexsortedset) object due to performance gain.
+
+Redisson's [RSortedSet](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSortedSet.html) is a distributed implementation of Java's [SortedSet](https://docs.oracle.com/javase/8/docs/api/java/util/SortedSet.html) interface, backed by Valkey or Redis. It is thread-safe and keeps its elements in sorted order - by their natural ordering, or by a [Comparator](https://docs.oracle.com/javase/8/docs/api/java/util/Comparator.html) supplied through `trySetComparator` - using that ordering to enforce uniqueness.
+
+`RSortedSet` maintains order on the client side and exposes only the synchronous interface together with a few asynchronous methods; it has no reactive or RxJava3 variant, and the `SortedSet` range views (`subSet`, `headSet`, `tailSet`) are not supported. For most needs one of the purpose-built sorted structures is a better fit - see [Choosing between the sorted structures](#choosing-between-the-sorted-structures).
+
+### Choosing between the sorted structures
+
+Redisson offers three sorted structures with different strengths:
+
+| Structure | Ordering | Elements | Interfaces |
+| --------- | -------- | -------- | ---------- |
+| `RSortedSet` | natural ordering or a `Comparator` | any serializable object | synchronous (plus some async) |
+| [`RLexSortedSet`](#lexsortedset) | lexicographic | `String` only | sync, async, reactive, RxJava3 |
+| [`RScoredSortedSet`](#scoredsortedset) | by an explicit numeric score | any serializable object | sync, async, reactive, RxJava3 |
+
+`RLexSortedSet` and `RScoredSortedSet` are backed by a native sorted set and scale far better, so prefer [LexSortedSet](#lexsortedset) for ordered `String` data and [ScoredSortedSet](#scoredsortedset) when elements are ranked by a score. Reach for `RSortedSet` only when you specifically need `Comparator`-based ordering of custom objects over a small set.
+
+### Basic usage
+
+If you need a custom ordering, call `trySetComparator` before adding any elements; it returns `false` if the set already contains elements (otherwise the natural ordering of `Comparable` elements is used). `add`, `remove`, and `contains` then behave as on any set.
+
 ```java
-RSortedSet<Integer> set = redisson.getSortedSet("anySet");
-set.trySetComparator(new MyComparator()); // set object comparator
+RSortedSet<Integer> set = redisson.getSortedSet("mySet");
+set.trySetComparator(Comparator.reverseOrder()); // optional; before the first add
+
 set.add(3);
 set.add(1);
 set.add(2);
 
-set.removeAsync(0);
-set.addAsync(5);
+boolean removed = set.remove(1);
+boolean exists = set.contains(2);
 ```
-## ScoredSortedSet
-Valkey or Redis based distributed [ScoredSortedSet](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RScoredSortedSet.html) object. Sorts elements by score defined during element insertion. Keeps elements uniqueness via element state comparison. 
 
-It has [Async](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RScoredSortedSetAsync.html), [Reactive](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RScoredSortedSetReactive.html) and [RxJava3](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RScoredSortedSetRx.html) interfaces. Set size is limited to `4 294 967 295` elements.
+`add`, `remove`, `readAll`, and the polling methods also have asynchronous (`RFuture`) forms, for example `addAsync` and `removeAsync`.
+
+### Reading in order
+
+`first` and `last` return the lowest and highest elements, `readAll` returns every element in sorted order, and the set can be traversed lazily with `iterator()` or, across a cluster, `distributedIterator()`.
+
 ```java
-RScoredSortedSet<SomeObject> set = redisson.getScoredSortedSet("simple");
+Integer lowest = set.first();
+Integer highest = set.last();
 
-set.add(0.13, new SomeObject(a, b));
-set.addAsync(0.251, new SomeObject(c, d));
-set.add(0.302, new SomeObject(g, d));
+Collection<Integer> ordered = set.readAll(); // all elements, in order
+int size = set.size();
 
-set.pollFirst();
-set.pollLast();
-
-int index = set.rank(new SomeObject(g, d)); // get element index
-Double score = set.getScore(new SomeObject(g, d)); // get element score
+for (Integer value : set) {
+    // iterates in sorted order
+}
 ```
+
+### Polling
+
+`pollFirst` and `pollLast` remove and return the lowest or highest element. Count variants return several at once, and `Duration` variants block until an element is available or the timeout elapses.
+
+```java
+Integer first = set.pollFirst();               // remove and return the lowest
+Collection<Integer> firstThree = set.pollFirst(3);
+
+Integer last = set.pollLast();                 // remove and return the highest
+
+// block up to 10 seconds for an element to appear
+Integer awaited = set.pollFirst(Duration.ofSeconds(10));
+```
+
+### Limitations
+
+`RSortedSet` keeps elements ordered on the client side, so insertions and reads grow more expensive as the set grows; it is not suited to large or high-churn data. It also has no reactive or RxJava3 interface, and the `java.util.SortedSet` range views - `subSet`, `headSet`, and `tailSet` - throw `UnsupportedOperationException`. For ordered `String` data use [LexSortedSet](#lexsortedset), and for score-ranked data use [ScoredSortedSet](#scoredsortedset).
+
+## ScoredSortedSet
+
+Redisson's [RScoredSortedSet](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RScoredSortedSet.html) is a distributed sorted set (a Valkey or Redis sorted set): every element is stored with an associated `double` score, and the set is kept ordered by that score. Elements are unique by their serialized state, the set holds up to 4,294,967,295 of them. This object is thread-safe.
+
+Elements can be queried two ways - by **rank** (their 0-based position in score order) or by **score range**. Read methods come in a `value*` form that returns the elements and an `entry*` form that returns [ScoredEntry](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/ScoredEntry.html) objects pairing each value with its score.
+
+For lexicographic ordering of `String` elements see [LexSortedSet](#lexsortedset), and for `Comparator`-based ordering of arbitrary objects see [SortedSet](#sortedset).
+
+### Basic operations
+
+`add` stores an element with a score (replacing the score if the element already exists), and `addAll` stores many at once. `addScore` atomically increments an element's score and returns the new value, `getScore` reads it, and `remove` deletes an element. The conditional forms `addIfAbsent`, `addIfExists`, `addIfGreater`, `addIfLess`, and `tryAdd` add only when their condition holds.
+
+=== "Sync"
+    ```java
+    RScoredSortedSet<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    SomeObject value = new SomeObject();
+    boolean added = set.add(1.5, value);
+    set.addAll(Map.of(new SomeObject(), 2.0, new SomeObject(), 3.0));
+    Double newScore = set.addScore(value, 0.5); // increment the score
+    Double score = set.getScore(value);
+    boolean removed = set.remove(value);
+    ```
+=== "Async"
+    ```java
+    RScoredSortedSetAsync<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    SomeObject value = new SomeObject();
+    RFuture<Boolean> added = set.addAsync(1.5, value);
+    RFuture<Integer> count = set.addAllAsync(Map.of(new SomeObject(), 2.0));
+    RFuture<Double> newScore = set.addScoreAsync(value, 0.5);
+    RFuture<Double> score = set.getScoreAsync(value);
+    RFuture<Boolean> removed = set.removeAsync(value);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RScoredSortedSetReactive<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    SomeObject value = new SomeObject();
+    Mono<Boolean> added = set.add(1.5, value);
+    Mono<Integer> count = set.addAll(Map.of(new SomeObject(), 2.0));
+    Mono<Double> newScore = set.addScore(value, 0.5);
+    Mono<Double> score = set.getScore(value);
+    Mono<Boolean> removed = set.remove(value);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RScoredSortedSetRx<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    SomeObject value = new SomeObject();
+    Single<Boolean> added = set.add(1.5, value);
+    Single<Integer> count = set.addAll(Map.of(new SomeObject(), 2.0));
+    Single<Double> newScore = set.addScore(value, 0.5);
+    Maybe<Double> score = set.getScore(value);
+    Single<Boolean> removed = set.remove(value);
+    ```
+
+### Ranking
+
+`rank` returns the 0-based position of an element in ascending score order and `revRank` in descending order; both are empty when the element is absent. `addAndGetRank` adds an element at an absolute score and returns its rank, while `addScoreAndGetRank` increments an element's score and returns its new rank - the typical leaderboard update. `rankEntry`/`revRankEntry` return the rank together with the score.
+
+=== "Sync"
+    ```java
+    RScoredSortedSet<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Integer rank = set.rank(value);          // lowest score = 0
+    Integer revRank = set.revRank(value);    // highest score = 0
+    Integer newRank = set.addAndGetRank(2.5, value);
+    Integer afterBump = set.addScoreAndGetRank(value, 0.5); // increment, get new rank
+    ```
+=== "Async"
+    ```java
+    RScoredSortedSetAsync<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    RFuture<Integer> rank = set.rankAsync(value);
+    RFuture<Integer> revRank = set.revRankAsync(value);
+    RFuture<Integer> newRank = set.addAndGetRankAsync(2.5, value);
+    RFuture<Integer> afterBump = set.addScoreAndGetRankAsync(value, 0.5);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RScoredSortedSetReactive<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Mono<Integer> rank = set.rank(value);
+    Mono<Integer> revRank = set.revRank(value);
+    Mono<Integer> newRank = set.addAndGetRank(2.5, value);
+    Mono<Integer> afterBump = set.addScoreAndGetRank(value, 0.5);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RScoredSortedSetRx<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Maybe<Integer> rank = set.rank(value);
+    Maybe<Integer> revRank = set.revRank(value);
+    Single<Integer> newRank = set.addAndGetRank(2.5, value);
+    Single<Integer> afterBump = set.addScoreAndGetRank(value, 0.5);
+    ```
+
+### Range queries
+
+Elements can be read by rank or by score. Rank ranges use 0-based indices, where negative values count back from the end (`-1` is the last element). Score ranges take a lower and upper bound, each with a flag marking it inclusive or exclusive, and accept an optional `offset`/`count` for paging. Every query has a `Reversed` form that walks from the highest score down, and an `entryRange` counterpart that returns `ScoredEntry` results carrying the scores.
+
+=== "Sync"
+    ```java
+    RScoredSortedSet<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    // by rank (position)
+    Collection<SomeObject> top3 = set.valueRangeReversed(0, 2);  // 3 highest
+    Collection<SomeObject> all = set.valueRange(0, -1);          // ascending
+    Collection<ScoredEntry<SomeObject>> withScores = set.entryRange(0, -1);
+
+    // by score: 1.0 <= score < 5.0
+    Collection<SomeObject> band = set.valueRange(1.0, true, 5.0, false);
+    Collection<SomeObject> page = set.valueRange(1.0, true, 5.0, false, 0, 25); // first 25 in band
+    int inBand = set.count(1.0, true, 5.0, false);
+    ```
+=== "Async"
+    ```java
+    RScoredSortedSetAsync<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    RFuture<Collection<SomeObject>> top3 = set.valueRangeReversedAsync(0, 2);
+    RFuture<Collection<SomeObject>> all = set.valueRangeAsync(0, -1);
+    RFuture<Collection<ScoredEntry<SomeObject>>> withScores = set.entryRangeAsync(0, -1);
+
+    RFuture<Collection<SomeObject>> band = set.valueRangeAsync(1.0, true, 5.0, false);
+    RFuture<Collection<SomeObject>> page = set.valueRangeAsync(1.0, true, 5.0, false, 0, 25);
+    RFuture<Integer> inBand = set.countAsync(1.0, true, 5.0, false);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RScoredSortedSetReactive<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Mono<Collection<SomeObject>> top3 = set.valueRangeReversed(0, 2);
+    Mono<Collection<SomeObject>> all = set.valueRange(0, -1);
+    Mono<Collection<ScoredEntry<SomeObject>>> withScores = set.entryRange(0, -1);
+
+    Mono<Collection<SomeObject>> band = set.valueRange(1.0, true, 5.0, false);
+    Mono<Collection<SomeObject>> page = set.valueRange(1.0, true, 5.0, false, 0, 25);
+    Mono<Integer> inBand = set.count(1.0, true, 5.0, false);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RScoredSortedSetRx<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Maybe<Collection<SomeObject>> top3 = set.valueRangeReversed(0, 2);
+    Maybe<Collection<SomeObject>> all = set.valueRange(0, -1);
+    Maybe<Collection<ScoredEntry<SomeObject>>> withScores = set.entryRange(0, -1);
+
+    Maybe<Collection<SomeObject>> band = set.valueRange(1.0, true, 5.0, false);
+    Maybe<Collection<SomeObject>> page = set.valueRange(1.0, true, 5.0, false, 0, 25);
+    Single<Integer> inBand = set.count(1.0, true, 5.0, false);
+    ```
+
+### First, last, and polling
+
+`first`/`last` and `firstScore`/`lastScore` read the extreme elements and their scores, and `firstEntry`/`lastEntry` return both as a `ScoredEntry`. `pollFirst`/`pollLast` remove and return the lowest or highest element, with count variants for several at once.
+
+=== "Sync"
+    ```java
+    RScoredSortedSet<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    SomeObject lowest = set.first();
+    SomeObject highest = set.last();
+    Double lowestScore = set.firstScore();
+    ScoredEntry<SomeObject> firstEntry = set.firstEntry();
+
+    SomeObject popped = set.pollFirst();      // remove and return the lowest
+    Collection<SomeObject> poppedFew = set.pollFirst(3);
+    ```
+=== "Async"
+    ```java
+    RScoredSortedSetAsync<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    RFuture<SomeObject> lowest = set.firstAsync();
+    RFuture<SomeObject> highest = set.lastAsync();
+    RFuture<Double> lowestScore = set.firstScoreAsync();
+    RFuture<ScoredEntry<SomeObject>> firstEntry = set.firstEntryAsync();
+
+    RFuture<SomeObject> popped = set.pollFirstAsync();
+    RFuture<Collection<SomeObject>> poppedFew = set.pollFirstAsync(3);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RScoredSortedSetReactive<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Mono<SomeObject> lowest = set.first();
+    Mono<SomeObject> highest = set.last();
+    Mono<Double> lowestScore = set.firstScore();
+    Mono<ScoredEntry<SomeObject>> firstEntry = set.firstEntry();
+
+    Mono<SomeObject> popped = set.pollFirst();
+    Mono<Collection<SomeObject>> poppedFew = set.pollFirst(3);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RScoredSortedSetRx<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Maybe<SomeObject> lowest = set.first();
+    Maybe<SomeObject> highest = set.last();
+    Maybe<Double> lowestScore = set.firstScore();
+    Maybe<ScoredEntry<SomeObject>> firstEntry = set.firstEntry();
+
+    Maybe<SomeObject> popped = set.pollFirst();
+    Maybe<Collection<SomeObject>> poppedFew = set.pollFirst(3);
+    ```
+
+`pollFirst`/`pollLast` also have blocking forms that take a `Duration` timeout, `pollFirstEntry`/`pollLastEntry` return the popped element with its score, and `pollFirstFromAny`/`pollLastFromAny` pop across several sets in one call.
+
+### Removing by rank or score
+
+`removeRangeByRank` and `removeRangeByScore` delete a whole slice of the set in one call and return how many elements were removed - the natural complement to the range queries above.
+
+=== "Sync"
+    ```java
+    RScoredSortedSet<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    int byRank = set.removeRangeByRank(0, 9);                   // the 10 lowest
+    int byScore = set.removeRangeByScore(0.0, true, 1.0, false); // 0.0 <= score < 1.0
+    ```
+=== "Async"
+    ```java
+    RScoredSortedSetAsync<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    RFuture<Integer> byRank = set.removeRangeByRankAsync(0, 9);
+    RFuture<Integer> byScore = set.removeRangeByScoreAsync(0.0, true, 1.0, false);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RScoredSortedSetReactive<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Mono<Integer> byRank = set.removeRangeByRank(0, 9);
+    Mono<Integer> byScore = set.removeRangeByScore(0.0, true, 1.0, false);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RScoredSortedSetRx<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Single<Integer> byRank = set.removeRangeByRank(0, 9);
+    Single<Integer> byScore = set.removeRangeByScore(0.0, true, 1.0, false);
+    ```
+
+### Set algebra
+
+A scored sorted set can be combined with other named sets. The `read*` methods return the result and leave this set unchanged, while `union`, `diff`, and `intersection` overwrite this set with the result and return its size. `countIntersection` returns the size of an intersection without materializing it.
+
+!!! note
+    `union`, `diff`, and `intersection` overwrite this set with the result. Use `readUnion`, `readDiff`, and `readIntersection` to combine sets without changing this one.
+
+=== "Sync"
+    ```java
+    RScoredSortedSet<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    // non-destructive: returns the result, this set is unchanged
+    Collection<SomeObject> u = set.readUnion("set2", "set3");
+    Collection<SomeObject> i = set.readIntersection("set2");
+    // SUM scores across sets, weighting set3 twice
+    Collection<SomeObject> weighted = set.readUnion(Aggregate.SUM, Map.of("set2", 1.0, "set3", 2.0));
+
+    // destructive: overwrites this set, returns the new size
+    int unionSize = set.union("set2", "set3");
+
+    Integer common = set.countIntersection("set2");
+    ```
+=== "Async"
+    ```java
+    RScoredSortedSetAsync<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    RFuture<Collection<SomeObject>> u = set.readUnionAsync("set2", "set3");
+    RFuture<Collection<SomeObject>> i = set.readIntersectionAsync("set2");
+    RFuture<Collection<SomeObject>> weighted = set.readUnionAsync(Aggregate.SUM, Map.of("set2", 1.0, "set3", 2.0));
+
+    RFuture<Integer> unionSize = set.unionAsync("set2", "set3");
+
+    RFuture<Integer> common = set.countIntersectionAsync("set2");
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RScoredSortedSetReactive<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Mono<Collection<SomeObject>> u = set.readUnion("set2", "set3");
+    Mono<Collection<SomeObject>> i = set.readIntersection("set2");
+    Mono<Collection<SomeObject>> weighted = set.readUnion(Aggregate.SUM, Map.of("set2", 1.0, "set3", 2.0));
+
+    Mono<Integer> unionSize = set.union("set2", "set3");
+
+    Mono<Integer> common = set.countIntersection("set2");
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RScoredSortedSetRx<SomeObject> set = redisson.getScoredSortedSet("mySet");
+
+    Maybe<Collection<SomeObject>> u = set.readUnion("set2", "set3");
+    Maybe<Collection<SomeObject>> i = set.readIntersection("set2");
+    Maybe<Collection<SomeObject>> weighted = set.readUnion(Aggregate.SUM, Map.of("set2", 1.0, "set3", 2.0));
+
+    Single<Integer> unionSize = set.union("set2", "set3");
+
+    Single<Integer> common = set.countIntersection("set2");
+    ```
+
+Overloads accept an `Aggregate` (`SUM`, `MIN`, or `MAX`) and per-set weights, and `readUnionEntries`/`readIntersectionEntries`/`readDiffEntries` return `ScoredEntry` results; see the javadoc for the full set.
 
 ### Data partitioning
 
@@ -1232,7 +2431,7 @@ Below is the list of all available `RScoredSortedSet` implementations:
 
 Code example:
 ```java
-RClusteredScoredSortedSet set = redisson.getClusteredScoredSortedSet("simpleBitset");
+RClusteredScoredSortedSet set = redisson.getClusteredScoredSortedSet("myScoredSet");
 set.add(1.1, "v1");
 set.add(1.2, "v2");
 set.add(1.3, "v3");
@@ -1274,7 +2473,7 @@ set.removeListener(listenerId);
 
 ## List
 
-Redisson's `RList` object implements the [List](https://docs.oracle.com/javase/8/docs/api/java/util/List.html) interface, providing a distributed and concurrent list backed by Valkey or Redis. This allows multiple applications or servers to share and manipulate list data seamlessly.
+Redisson's `RList` object implements the [List](https://docs.oracle.com/javase/8/docs/api/java/util/List.html) interface, providing a distributed and concurrent list backed by Valkey or Redis. This allows multiple applications or servers to share and manipulate list data seamlessly. This object is thread-safe.
 
 ### Basic Operations
 
@@ -1383,8 +2582,11 @@ Code example of removing elements:
     // Remove elements not in the specified collection
     list.retainAll(Arrays.asList("element4", "element5"));
     
-    // Remove first occurrence of element
+    // Fast remove the element at the given index (no return value)
     list.fastRemove(0);
+    
+    // Remove up to N occurrences of a value (LREM)
+    boolean removedOccurrences = list.remove("element2", 2);
     
     // Clear all elements
     list.clear();
@@ -1405,8 +2607,11 @@ Code example of removing elements:
     // Remove elements not in the specified collection
     RFuture<Boolean> future4 = list.retainAllAsync(Arrays.asList("element4", "element5"));
     
-    // Remove first occurrence at index
+    // Fast remove the element at the given index (no return value)
     RFuture<Void> future5 = list.fastRemoveAsync(0);
+    
+    // Remove up to N occurrences of a value (LREM)
+    RFuture<Boolean> future7 = list.removeAsync("element2", 2);
     
     // Clear all elements
     RFuture<Boolean> future6 = list.deleteAsync();
@@ -1428,7 +2633,7 @@ Code example of removing elements:
     // Remove elements not in the specified collection
     Mono<Boolean> mono4 = list.retainAll(Arrays.asList("element4", "element5"));
     
-    // Remove first occurrence at index
+    // Fast remove the element at the given index (no return value)
     Mono<Void> mono5 = list.fastRemove(0);
     
     // Clear all elements
@@ -1451,12 +2656,14 @@ Code example of removing elements:
     // Remove elements not in the specified collection
     Single<Boolean> single4 = list.retainAll(Arrays.asList("element4", "element5"));
     
-    // Remove first occurrence at index
+    // Fast remove the element at the given index (no return value)
     Completable completable = list.fastRemove(0);
     
     // Clear all elements
     Single<Boolean> single5 = list.delete();
     ```
+
+The `remove(element, count)` form shown above removes up to a given number of occurrences of a value and is available on the synchronous and asynchronous interfaces only.
 
 Code example of checking and searching:
 
@@ -1751,6 +2958,46 @@ Code example of iteration:
     flowable.subscribe(element -> System.out.println(element));
     ```
 
+### Sorting
+
+`RList` is sortable. `readSort` returns the elements ordered numerically without modifying the list, while `sortTo` sorts and stores the result into another list, returning the destination size. The read method is named `readSorted` on the Reactive and RxJava3 interfaces.
+
+=== "Sync"
+    ```java
+    RList<String> list = redisson.getList("myList");
+    
+    // Return elements sorted, without modifying the list
+    List<String> sorted = list.readSort(SortOrder.ASC);
+    
+    // Sort and store the result into another list; returns its size
+    int size = list.sortTo("destList", SortOrder.ASC);
+    ```
+=== "Async"
+    ```java
+    RList<String> list = redisson.getList("myList");
+    
+    RFuture<List<String>> sorted = list.readSortAsync(SortOrder.ASC);
+    RFuture<Integer> size = list.sortToAsync("destList", SortOrder.ASC);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RListReactive<String> list = redisson.getList("myList");
+    
+    Mono<List<String>> sorted = list.readSorted(SortOrder.ASC);
+    Mono<Integer> size = list.sortTo("destList", SortOrder.ASC);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RListRx<String> list = redisson.getList("myList");
+    
+    Single<List<String>> sorted = list.readSorted(SortOrder.ASC);
+    Single<Integer> size = list.sortTo("destList", SortOrder.ASC);
+    ```
+
+By default `readSort` orders elements numerically; the `readSortAlpha` variants sort lexicographically, and further overloads sort by an external key pattern, fetch other keys per element, and page the result - see the [RSortable](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RSortable.html) javadoc.
+
 ### Listeners
 
 Redisson allows binding listeners to `RList` objects to receive notifications on list modifications. 
@@ -1965,323 +3212,821 @@ Code example of adding Listeners:
         .subscribe();
     ```
 
-## Time Series
+## Array
 
-Java implementation of Valkey or Redis based [RTimeSeries](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RTimeSeries.html) object is a specialized data structure for storing and querying time-stamped data. It allows storing values indexed by timestamp with optional TTL (time-to-live) per entry. Values are automatically ordered by timestamp, making it ideal for metrics, sensor data, financial data, and event logging. 
+Redisson's [RArray](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/RArray.html) is a distributed array that stores values by sparse, non-negative integer index, backed by a Redis array. This object is thread-safe.
 
-This object is thread-safe.
+Indexes are sparse: only the indexes that are written occupy space, so an array can hold values at widely separated positions without allocating the gaps between them.
 
-### Timestamp-based storage
+Requires **Redis 8.8+**.
 
-Time Series stores entries as value-timestamp pairs where each value is associated with a unique timestamp. Timestamps serve as keys for data retrieval and ordering. If an entry with the same timestamp already exists, it will be overwritten with the new value.
+### Setting and reading values
+
+`set` writes a value at a single index, a run of values starting at an index, or a batch of index/value pairs supplied as a map; each form returns the number of values written. `get` reads the value at one index or, given several indexes, the values at each of them. `isSet` reports whether an index currently holds a value.
 
 === "Sync"
     ```java
-    RTimeSeries<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RArray<Integer> array = redisson.getArray("myArray");
     
-    // Add entries with timestamps
-    ts.add(201908110501, "10%");
-    ts.add(201908110502, "30%");
-    ts.add(201908110504, "10%");
-    ts.add(201908110508, "75%");
+    long written = array.set(0, 100);
+    array.set(10, 200, 300);                 // values at indexes 10 and 11
+    array.set(Map.of(50L, 500, 99L, 999));   // values at indexes 50 and 99
     
-    // Add multiple entries at once
-    ts.addAll(Map.of(201908110601L, "15%", 
-                     201908110602L, "25%",
-                     201908110603L, "35%"));
-    
-    // Retrieve value by timestamp
-    String value = ts.get(201908110508);
-    
-    // Retrieve entry (value with timestamp) by timestamp
-    TimeSeriesEntry<String> entry = ts.getEntry(201908110508);
-    
-    // Remove entry by timestamp
-    ts.remove(201908110508);
+    Integer value = array.get(0);
+    List<Integer> values = array.get(0, 10, 50);
+    boolean present = array.isSet(0);
     ```
 === "Async"
     ```java
-    RTimeSeries<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RArrayAsync<Integer> array = redisson.getArray("myArray");
     
-    // Add entries with timestamps
-    RFuture<Void> f1 = ts.addAsync(201908110501, "10%");
-    RFuture<Void> f2 = ts.addAsync(201908110502, "30%");
-    RFuture<Void> f3 = ts.addAsync(201908110504, "10%");
-    RFuture<Void> f4 = ts.addAsync(201908110508, "75%");
+    RFuture<Long> written = array.setAsync(0, 100);
+    RFuture<Long> run = array.setAsync(10, 200, 300);
+    RFuture<Long> batch = array.setAsync(Map.of(50L, 500, 99L, 999));
     
-    // Add multiple entries at once
-    RFuture<Void> f5 = ts.addAllAsync(Map.of(201908110601L, "15%", 
-                                              201908110602L, "25%",
-                                              201908110603L, "35%"));
-    
-    // Retrieve value by timestamp
-    RFuture<String> value = ts.getAsync(201908110508);
-    
-    // Retrieve entry (value with timestamp) by timestamp
-    RFuture<TimeSeriesEntry<String>> entry = ts.getEntryAsync(201908110508);
-    
-    // Remove entry by timestamp
-    RFuture<Boolean> removed = ts.removeAsync(201908110508);
+    RFuture<Integer> value = array.getAsync(0);
+    RFuture<List<Integer>> values = array.getAsync(0, 10, 50);
+    RFuture<Boolean> present = array.isSetAsync(0);
     ```
 === "Reactive"
     ```java
     RedissonReactiveClient redisson = redissonClient.reactive();
-    RTimeSeriesReactive<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RArrayReactive<Integer> array = redisson.getArray("myArray");
     
-    // Add entries with timestamps
-    Mono<Void> m1 = ts.add(201908110501, "10%");
-    Mono<Void> m2 = ts.add(201908110502, "30%");
-    Mono<Void> m3 = ts.add(201908110504, "10%");
-    Mono<Void> m4 = ts.add(201908110508, "75%");
+    Mono<Long> written = array.set(0, 100);
+    Mono<Long> run = array.set(10, 200, 300);
+    Mono<Long> batch = array.set(Map.of(50L, 500, 99L, 999));
     
-    // Add multiple entries at once
-    Mono<Void> m5 = ts.addAll(Map.of(201908110601L, "15%", 
-                                      201908110602L, "25%",
-                                      201908110603L, "35%"));
-    
-    // Retrieve value by timestamp
-    Mono<String> value = ts.get(201908110508);
-    
-    // Retrieve entry (value with timestamp) by timestamp
-    Mono<TimeSeriesEntry<String>> entry = ts.getEntry(201908110508);
-    
-    // Remove entry by timestamp
-    Mono<Boolean> removed = ts.remove(201908110508);
+    Mono<Integer> value = array.get(0);
+    Mono<List<Integer>> values = array.get(0, 10, 50);
+    Mono<Boolean> present = array.isSet(0);
     ```
 === "RxJava3"
     ```java
     RedissonRxClient redisson = redissonClient.rxJava();
-    RTimeSeriesRx<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RArrayRx<Integer> array = redisson.getArray("myArray");
     
-    // Add entries with timestamps
-    Completable c1 = ts.add(201908110501, "10%");
-    Completable c2 = ts.add(201908110502, "30%");
-    Completable c3 = ts.add(201908110504, "10%");
-    Completable c4 = ts.add(201908110508, "75%");
+    Single<Long> written = array.set(0, 100);
+    Single<Long> run = array.set(10, 200, 300);
+    Single<Long> batch = array.set(Map.of(50L, 500, 99L, 999));
     
-    // Add multiple entries at once
-    Completable c5 = ts.addAll(Map.of(201908110601L, "15%", 
-                                       201908110602L, "25%",
-                                       201908110603L, "35%"));
-    
-    // Retrieve value by timestamp
-    Maybe<String> value = ts.get(201908110508);
-    
-    // Retrieve entry (value with timestamp) by timestamp
-    Maybe<TimeSeriesEntry<String>> entry = ts.getEntry(201908110508);
-    
-    // Remove entry by timestamp
-    Single<Boolean> removed = ts.remove(201908110508);
+    Maybe<Integer> value = array.get(0);
+    Single<List<Integer>> values = array.get(0, 10, 50);
+    Single<Boolean> present = array.isSet(0);
     ```
 
-### TTL per entry
+### Ranges and counting
 
-Time Series supports defining time-to-live (TTL) for each entry individually. Expired entries are automatically removed by Valkey or Redis. This is useful for implementing data retention policies where older data should be automatically cleaned up.
+`range` returns the values stored in an inclusive index range, while `scan` returns the same range as `ArrayEntry` objects and accepts an optional limit. `count` returns the number of stored values, either across the whole array or within a range, and `countMatches` counts values equal to a given value in a range. `length` returns the array length, one position past the highest occupied index.
 
 === "Sync"
     ```java
-    RTimeSeries<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RArray<Integer> array = redisson.getArray("myArray");
     
-    // Add entry with TTL of 10 hours
-    ts.add(201908110510, "85%", 10, TimeUnit.HOURS);
+    List<Integer> values = array.range(0, 100);
+    List<ArrayEntry<Integer>> entries = array.scan(0, 100);
+    List<ArrayEntry<Integer>> firstTen = array.scan(0, 100, 10);
     
-    // Add entry with TTL of 30 minutes
-    ts.add(201908110520, "90%", 30, TimeUnit.MINUTES);
+    long total = array.count();
+    long inRange = array.count(0, 100);
+    long matches = array.countMatches(0, 100, 200);
+    long length = array.length();
+    ```
+=== "Async"
+    ```java
+    RArrayAsync<Integer> array = redisson.getArray("myArray");
     
-    // Add entry with TTL as Duration
-    ts.add(201908110530, "95%", Duration.ofDays(1));
+    RFuture<List<Integer>> values = array.rangeAsync(0, 100);
+    RFuture<List<ArrayEntry<Integer>>> entries = array.scanAsync(0, 100);
+    RFuture<List<ArrayEntry<Integer>>> firstTen = array.scanAsync(0, 100, 10);
     
-    // Add multiple entries with the same TTL
-    ts.addAll(Map.of(201908110601L, "15%", 
+    RFuture<Long> total = array.countAsync();
+    RFuture<Long> inRange = array.countAsync(0, 100);
+    RFuture<Long> matches = array.countMatchesAsync(0, 100, 200);
+    RFuture<Long> length = array.lengthAsync();
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RArrayReactive<Integer> array = redisson.getArray("myArray");
+    
+    Mono<List<Integer>> values = array.range(0, 100);
+    Mono<List<ArrayEntry<Integer>>> entries = array.scan(0, 100);
+    Mono<List<ArrayEntry<Integer>>> firstTen = array.scan(0, 100, 10);
+    
+    Mono<Long> total = array.count();
+    Mono<Long> inRange = array.count(0, 100);
+    Mono<Long> matches = array.countMatches(0, 100, 200);
+    Mono<Long> length = array.length();
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RArrayRx<Integer> array = redisson.getArray("myArray");
+    
+    Single<List<Integer>> values = array.range(0, 100);
+    Single<List<ArrayEntry<Integer>>> entries = array.scan(0, 100);
+    Single<List<ArrayEntry<Integer>>> firstTen = array.scan(0, 100, 10);
+    
+    Single<Long> total = array.count();
+    Single<Long> inRange = array.count(0, 100);
+    Single<Long> matches = array.countMatches(0, 100, 200);
+    Single<Long> length = array.length();
+    ```
+
+### Deleting values
+
+`delete` removes the values at the given indexes, `deleteRange` removes everything in an inclusive index range, and `deleteRanges` removes several ranges at once, taking start/end index pairs. Each returns the number of values removed.
+
+=== "Sync"
+    ```java
+    RArray<Integer> array = redisson.getArray("myArray");
+    
+    long removed = array.delete(0, 10, 50);
+    long rangeRemoved = array.deleteRange(0, 100);
+    long rangesRemoved = array.deleteRanges(0, 10, 50, 60);   // ranges [0..10] and [50..60]
+    ```
+=== "Async"
+    ```java
+    RArrayAsync<Integer> array = redisson.getArray("myArray");
+    
+    RFuture<Long> removed = array.deleteAsync(0, 10, 50);
+    RFuture<Long> rangeRemoved = array.deleteRangeAsync(0, 100);
+    RFuture<Long> rangesRemoved = array.deleteRangesAsync(0, 10, 50, 60);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RArrayReactive<Integer> array = redisson.getArray("myArray");
+    
+    Mono<Long> removed = array.delete(0, 10, 50);
+    Mono<Long> rangeRemoved = array.deleteRange(0, 100);
+    Mono<Long> rangesRemoved = array.deleteRanges(0, 10, 50, 60);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RArrayRx<Integer> array = redisson.getArray("myArray");
+    
+    Single<Long> removed = array.delete(0, 10, 50);
+    Single<Long> rangeRemoved = array.deleteRange(0, 100);
+    Single<Long> rangesRemoved = array.deleteRanges(0, 10, 50, 60);
+    ```
+
+### Appending and the insert cursor
+
+Instead of choosing indexes explicitly, `insert` appends values at consecutive indexes starting from the array's current insert cursor and returns the index of the last value written. `next` returns the index the cursor will use next, or `null` when it is exhausted, and `seek` repositions the cursor. `ring` appends values into a fixed-size ring buffer, wrapping around once the size is reached. `lastItems` returns the most recently inserted values, optionally in reverse order.
+
+=== "Sync"
+    ```java
+    RArray<Integer> array = redisson.getArray("myArray");
+    
+    long lastIndex = array.insert(1, 2, 3);   // appended at the current cursor
+    Long nextIndex = array.next();
+    boolean moved = array.seek(0);
+    
+    array.ring(1000, 10, 20, 30);             // ring buffer of size 1000
+    List<Integer> recent = array.lastItems(5);
+    List<Integer> recentReversed = array.lastItems(5, true);
+    ```
+=== "Async"
+    ```java
+    RArrayAsync<Integer> array = redisson.getArray("myArray");
+    
+    RFuture<Long> lastIndex = array.insertAsync(1, 2, 3);
+    RFuture<Long> nextIndex = array.nextAsync();
+    RFuture<Boolean> moved = array.seekAsync(0);
+    
+    RFuture<Long> ringIndex = array.ringAsync(1000, 10, 20, 30);
+    RFuture<List<Integer>> recent = array.lastItemsAsync(5);
+    RFuture<List<Integer>> recentReversed = array.lastItemsAsync(5, true);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RArrayReactive<Integer> array = redisson.getArray("myArray");
+    
+    Mono<Long> lastIndex = array.insert(1, 2, 3);
+    Mono<Long> nextIndex = array.next();
+    Mono<Boolean> moved = array.seek(0);
+    
+    Mono<Long> ringIndex = array.ring(1000, 10, 20, 30);
+    Mono<List<Integer>> recent = array.lastItems(5);
+    Mono<List<Integer>> recentReversed = array.lastItems(5, true);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RArrayRx<Integer> array = redisson.getArray("myArray");
+    
+    Single<Long> lastIndex = array.insert(1, 2, 3);
+    Maybe<Long> nextIndex = array.next();
+    Single<Boolean> moved = array.seek(0);
+    
+    Single<Long> ringIndex = array.ring(1000, 10, 20, 30);
+    Single<List<Integer>> recent = array.lastItems(5);
+    Single<List<Integer>> recentReversed = array.lastItems(5, true);
+    ```
+
+### Iterating
+
+The synchronous API exposes the entries as an `Iterator` (optionally with a page-size hint that maps to the `ARSCAN COUNT` option) and as a `Stream`. The other APIs provide the same traversal as an `AsyncIterator`, a Reactor `Flux`, and an RxJava3 `Flowable`. Entries are always returned in ascending index order.
+
+=== "Sync"
+    ```java
+    RArray<Integer> array = redisson.getArray("myArray");
+    
+    for (ArrayEntry<Integer> entry : array) {
+        long index = entry.getIndex();
+        Integer value = entry.getValue();
+    }
+    
+    Iterator<ArrayEntry<Integer>> paged = array.iterator(100);
+    Stream<ArrayEntry<Integer>> stream = array.stream();
+    ```
+=== "Async"
+    ```java
+    RArrayAsync<Integer> array = redisson.getArray("myArray");
+    
+    AsyncIterator<ArrayEntry<Integer>> iterator = array.iteratorAsync();
+    AsyncIterator<ArrayEntry<Integer>> paged = array.iteratorAsync(100);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RArrayReactive<Integer> array = redisson.getArray("myArray");
+    
+    Flux<ArrayEntry<Integer>> entries = array.iterator();
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RArrayRx<Integer> array = redisson.getArray("myArray");
+    
+    Flowable<ArrayEntry<Integer>> entries = array.iterator();
+    ```
+
+### Searching with grep
+
+`grep` returns the indexes of values matching an [ArrayGrepArgs](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/array/ArrayGrepArgs.html) predicate, and `grepEntries` returns the matching entries; both can be restricted to an index range. Predicates are built with the static factories `exact`, `match` (substring), `glob`, and `regex`, and can be combined and tuned with `and`, `or`, `limit`, and `noCase`.
+
+=== "Sync"
+    ```java
+    RArray<Integer> array = redisson.getArray("myArray");
+    
+    List<Long> indexes = array.grep(ArrayGrepArgs.exact(200));
+    List<Long> inRange = array.grep(0, 100, ArrayGrepArgs.glob("2*").limit(10));
+    List<ArrayEntry<Integer>> entries = array.grepEntries(ArrayGrepArgs.match(20));
+    ```
+=== "Async"
+    ```java
+    RArrayAsync<Integer> array = redisson.getArray("myArray");
+    
+    RFuture<List<Long>> indexes = array.grepAsync(ArrayGrepArgs.exact(200));
+    RFuture<List<Long>> inRange = array.grepAsync(0, 100, ArrayGrepArgs.glob("2*").limit(10));
+    RFuture<List<ArrayEntry<Integer>>> entries = array.grepEntriesAsync(ArrayGrepArgs.match(20));
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RArrayReactive<Integer> array = redisson.getArray("myArray");
+    
+    Mono<List<Long>> indexes = array.grep(ArrayGrepArgs.exact(200));
+    Mono<List<Long>> inRange = array.grep(0, 100, ArrayGrepArgs.glob("2*").limit(10));
+    Mono<List<ArrayEntry<Integer>>> entries = array.grepEntries(ArrayGrepArgs.match(20));
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RArrayRx<Integer> array = redisson.getArray("myArray");
+    
+    Single<List<Long>> indexes = array.grep(ArrayGrepArgs.exact(200));
+    Single<List<Long>> inRange = array.grep(0, 100, ArrayGrepArgs.glob("2*").limit(10));
+    Single<List<ArrayEntry<Integer>>> entries = array.grepEntries(ArrayGrepArgs.match(20));
+    ```
+
+### Aggregations
+
+For numeric values, `sum`, `min`, and `max` compute the corresponding aggregate over an index range, and `bitAnd`, `bitOr`, and `bitXor` compute bitwise reductions over the same range. In the RxJava3 API these return `Maybe`, since a range may contain no values.
+
+=== "Sync"
+    ```java
+    RArray<Integer> array = redisson.getArray("myArray");
+    
+    Double sum = array.sum(0, 100);
+    Double min = array.min(0, 100);
+    Double max = array.max(0, 100);
+    
+    Long and = array.bitAnd(0, 100);
+    Long or = array.bitOr(0, 100);
+    Long xor = array.bitXor(0, 100);
+    ```
+=== "Async"
+    ```java
+    RArrayAsync<Integer> array = redisson.getArray("myArray");
+    
+    RFuture<Double> sum = array.sumAsync(0, 100);
+    RFuture<Double> min = array.minAsync(0, 100);
+    RFuture<Double> max = array.maxAsync(0, 100);
+    
+    RFuture<Long> and = array.bitAndAsync(0, 100);
+    RFuture<Long> or = array.bitOrAsync(0, 100);
+    RFuture<Long> xor = array.bitXorAsync(0, 100);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RArrayReactive<Integer> array = redisson.getArray("myArray");
+    
+    Mono<Double> sum = array.sum(0, 100);
+    Mono<Double> min = array.min(0, 100);
+    Mono<Double> max = array.max(0, 100);
+    
+    Mono<Long> and = array.bitAnd(0, 100);
+    Mono<Long> or = array.bitOr(0, 100);
+    Mono<Long> xor = array.bitXor(0, 100);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RArrayRx<Integer> array = redisson.getArray("myArray");
+    
+    Maybe<Double> sum = array.sum(0, 100);
+    Maybe<Double> min = array.min(0, 100);
+    Maybe<Double> max = array.max(0, 100);
+    
+    Maybe<Long> and = array.bitAnd(0, 100);
+    Maybe<Long> or = array.bitOr(0, 100);
+    Maybe<Long> xor = array.bitXor(0, 100);
+    ```
+
+### Array information
+
+`getInfo` returns an [ArrayInfo](https://static.javadoc.io/org.redisson/redisson/latest/org/redisson/api/array/ArrayInfo.html) snapshot describing the array, including the number of stored values, the array length, and the next insert index. Calling it with `true` includes fuller internal statistics about the array's storage layout.
+
+=== "Sync"
+    ```java
+    RArray<Integer> array = redisson.getArray("myArray");
+    
+    ArrayInfo info = array.getInfo();
+    long count = info.getCount();
+    long length = info.getLength();
+    long nextInsertIndex = info.getNextInsertIndex();
+    
+    ArrayInfo full = array.getInfo(true);
+    ```
+=== "Async"
+    ```java
+    RArrayAsync<Integer> array = redisson.getArray("myArray");
+    
+    RFuture<ArrayInfo> info = array.getInfoAsync();
+    RFuture<ArrayInfo> full = array.getInfoAsync(true);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RArrayReactive<Integer> array = redisson.getArray("myArray");
+    
+    Mono<ArrayInfo> info = array.getInfo();
+    Mono<ArrayInfo> full = array.getInfo(true);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RArrayRx<Integer> array = redisson.getArray("myArray");
+    
+    Single<ArrayInfo> info = array.getInfo();
+    Single<ArrayInfo> full = array.getInfo(true);
+    ```
+
+### Use Cases
+
+`RArray` fits data that is naturally addressed by a numeric index and is often sparse — only some positions are populated — or that is appended and read back as a recent window. Values can be read or aggregated over index ranges in a single call, and numeric ranges support sum, min, max, and bitwise reductions.
+
+**Sparse Vectors and Feature Stores**
+
+Machine-learning feature vectors and embeddings are frequently sparse: only a few of many possible dimensions carry a value. Storing them by dimension index keeps the gaps free of cost, while individual dimensions or whole ranges can be read back directly.
+
+```java
+RArray<Double> features = redisson.getArray("features:user:1001");
+
+// only populated dimensions occupy space
+features.set(7, 0.91);
+features.set(2048, 0.34);
+features.set(50000, 0.12);
+
+Double weight = features.get(7);
+List<Double> window = features.range(0, 1024);
+```
+
+**Ring Buffers for Recent Items**
+
+A fixed-size ring buffer keeps the latest values and overwrites the oldest as new ones arrive — a natural fit for recent readings, rolling logs, or the last events seen. `ring` writes into the buffer and `lastItems` reads the most recent values, newest first.
+
+```java
+RArray<Integer> recent = redisson.getArray("readings:sensor:42");
+
+// keep the last 1000 readings
+recent.ring(1000, 21, 22, 23);
+
+// the five most recent readings, newest first
+List<Integer> latest = recent.lastItems(5, true);
+```
+
+**Range Analytics over Numeric Data**
+
+When values are numeric, an index range can be reduced without fetching the data: `sum`, `min`, and `max` compute aggregates, while `bitAnd`, `bitOr`, and `bitXor` combine values bitwise. `grep` locates the indexes whose values match a predicate.
+
+```java
+RArray<Integer> metrics = redisson.getArray("metrics:day");
+
+Double total = metrics.sum(0, 1439);   // e.g. one value per minute of the day
+Double peak = metrics.max(0, 1439);
+
+List<Long> spikes = metrics.grep(0, 1439, ArrayGrepArgs.glob("9*").limit(10));
+```
+
+## Time Series
+
+Redisson's `RTimeSeries` object is a distributed structure for storing and querying time-stamped data on Valkey or Redis. Each entry pairs a unique `long` timestamp with a value and, optionally, a *label* - a secondary value stored and returned alongside the entry. Entries are kept ordered by timestamp, which makes `RTimeSeries` a natural fit for metrics, sensor readings, financial ticks, and event logs.
+
+The object is typed as `RTimeSeries<V, L>`, where `V` is the value type and `L` the label type (use any type, such as `Object`, when labels aren't needed). It is thread-safe and implements `Iterable<V>`.
+
+### Storing entries
+
+Each value is stored against a unique timestamp; adding a value at an existing timestamp overwrites the previous one. A label can be attached per entry, and whole batches can be added in a single call.
+
+=== "Sync"
+    ```java
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    // Add a value at a timestamp
+    ts.add(201908110501L, "10%");
+    ts.add(201908110502L, "30%");
+    
+    // Add a value together with a label
+    ts.add(201908110504L, "10%", "host-1");
+    
+    // Add several values at once
+    ts.addAll(Map.of(201908110601L, "15%",
+                     201908110602L, "25%",
+                     201908110603L, "35%"));
+    
+    // Add several labelled entries at once
+    ts.addAll(List.of(new TimeSeriesEntry<>(201908110701L, "40%", "host-1"),
+                      new TimeSeriesEntry<>(201908110702L, "45%", "host-2")));
+    ```
+=== "Async"
+    ```java
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    RFuture<Void> f1 = ts.addAsync(201908110501L, "10%");
+    RFuture<Void> f2 = ts.addAsync(201908110504L, "10%", "host-1");
+    
+    RFuture<Void> f3 = ts.addAllAsync(Map.of(201908110601L, "15%",
+                                             201908110602L, "25%"));
+    
+    RFuture<Void> f4 = ts.addAllAsync(List.of(
+            new TimeSeriesEntry<>(201908110701L, "40%", "host-1"),
+            new TimeSeriesEntry<>(201908110702L, "45%", "host-2")));
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RTimeSeriesReactive<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    Mono<Void> m1 = ts.add(201908110501L, "10%");
+    Mono<Void> m2 = ts.add(201908110504L, "10%", "host-1");
+    
+    Mono<Void> m3 = ts.addAll(Map.of(201908110601L, "15%",
+                                     201908110602L, "25%"));
+    
+    Mono<Void> m4 = ts.addAll(List.of(
+            new TimeSeriesEntry<>(201908110701L, "40%", "host-1"),
+            new TimeSeriesEntry<>(201908110702L, "45%", "host-2")));
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RTimeSeriesRx<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    Completable c1 = ts.add(201908110501L, "10%");
+    Completable c2 = ts.add(201908110504L, "10%", "host-1");
+    
+    Completable c3 = ts.addAll(Map.of(201908110601L, "15%",
+                                      201908110602L, "25%"));
+    
+    Completable c4 = ts.addAll(List.of(
+            new TimeSeriesEntry<>(201908110701L, "40%", "host-1"),
+            new TimeSeriesEntry<>(201908110702L, "45%", "host-2")));
+    ```
+
+### Per-entry TTL
+
+Each entry can be given its own time-to-live, after which Valkey or Redis removes it automatically - useful for retention policies. A TTL can be expressed as an amount plus `TimeUnit` or as a `Duration`, and applies to single entries or whole batches. A label and a TTL are combined through the `Duration` overload.
+
+=== "Sync"
+    ```java
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    // TTL as amount + TimeUnit
+    ts.add(201908110510L, "85%", 10, TimeUnit.HOURS);
+    
+    // TTL as Duration
+    ts.add(201908110530L, "95%", Duration.ofDays(1));
+    
+    // Label together with a TTL
+    ts.add(201908110540L, "99%", "host-1", Duration.ofHours(6));
+    
+    // Same TTL for a whole batch
+    ts.addAll(Map.of(201908110601L, "15%",
                      201908110602L, "25%"), 1, TimeUnit.HOURS);
     ```
 === "Async"
     ```java
-    RTimeSeries<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Add entry with TTL of 10 hours
-    RFuture<Void> f1 = ts.addAsync(201908110510, "85%", 10, TimeUnit.HOURS);
-    
-    // Add entry with TTL of 30 minutes
-    RFuture<Void> f2 = ts.addAsync(201908110520, "90%", 30, TimeUnit.MINUTES);
-    
-    // Add entry with TTL as Duration
-    RFuture<Void> f3 = ts.addAsync(201908110530, "95%", Duration.ofDays(1));
-    
-    // Add multiple entries with the same TTL
-    RFuture<Void> f4 = ts.addAllAsync(Map.of(201908110601L, "15%", 
-                                              201908110602L, "25%"), 1, TimeUnit.HOURS);
+    RFuture<Void> f1 = ts.addAsync(201908110510L, "85%", 10, TimeUnit.HOURS);
+    RFuture<Void> f2 = ts.addAsync(201908110530L, "95%", Duration.ofDays(1));
+    RFuture<Void> f3 = ts.addAsync(201908110540L, "99%", "host-1", Duration.ofHours(6));
+    RFuture<Void> f4 = ts.addAllAsync(Map.of(201908110601L, "15%",
+                                             201908110602L, "25%"), 1, TimeUnit.HOURS);
     ```
 === "Reactive"
     ```java
     RedissonReactiveClient redisson = redissonClient.reactive();
-    RTimeSeriesReactive<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeriesReactive<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Add entry with TTL of 10 hours
-    Mono<Void> m1 = ts.add(201908110510, "85%", 10, TimeUnit.HOURS);
-    
-    // Add entry with TTL of 30 minutes
-    Mono<Void> m2 = ts.add(201908110520, "90%", 30, TimeUnit.MINUTES);
-    
-    // Add entry with TTL as Duration
-    Mono<Void> m3 = ts.add(201908110530, "95%", Duration.ofDays(1));
-    
-    // Add multiple entries with the same TTL
-    Mono<Void> m4 = ts.addAll(Map.of(201908110601L, "15%", 
-                                      201908110602L, "25%"), 1, TimeUnit.HOURS);
+    Mono<Void> m1 = ts.add(201908110510L, "85%", 10, TimeUnit.HOURS);
+    Mono<Void> m2 = ts.add(201908110530L, "95%", Duration.ofDays(1));
+    Mono<Void> m3 = ts.add(201908110540L, "99%", "host-1", Duration.ofHours(6));
+    Mono<Void> m4 = ts.addAll(Map.of(201908110601L, "15%",
+                                     201908110602L, "25%"), 1, TimeUnit.HOURS);
     ```
 === "RxJava3"
     ```java
     RedissonRxClient redisson = redissonClient.rxJava();
-    RTimeSeriesRx<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeriesRx<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Add entry with TTL of 10 hours
-    Completable c1 = ts.add(201908110510, "85%", 10, TimeUnit.HOURS);
+    Completable c1 = ts.add(201908110510L, "85%", 10, TimeUnit.HOURS);
+    Completable c2 = ts.add(201908110530L, "95%", Duration.ofDays(1));
+    Completable c3 = ts.add(201908110540L, "99%", "host-1", Duration.ofHours(6));
+    Completable c4 = ts.addAll(Map.of(201908110601L, "15%",
+                                      201908110602L, "25%"), 1, TimeUnit.HOURS);
+    ```
+
+### Reading and removing entries
+
+`get` returns a value by timestamp, while `getEntry` returns the full `TimeSeriesEntry` (its timestamp, value, and label). `getAndRemove` reads and deletes in one step, and `size` reports the entry count.
+
+=== "Sync"
+    ```java
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Add entry with TTL of 30 minutes
-    Completable c2 = ts.add(201908110520, "90%", 30, TimeUnit.MINUTES);
+    // Value at a timestamp
+    String value = ts.get(201908110504L);
     
-    // Add entry with TTL as Duration
-    Completable c3 = ts.add(201908110530, "95%", Duration.ofDays(1));
+    // Full entry: timestamp, value, label
+    TimeSeriesEntry<String, String> entry = ts.getEntry(201908110504L);
+    String label = entry.getLabel();
     
-    // Add multiple entries with the same TTL
-    Completable c4 = ts.addAll(Map.of(201908110601L, "15%", 
-                                       201908110602L, "25%"), 1, TimeUnit.HOURS);
+    // Number of entries
+    int size = ts.size();
+    
+    // Remove by timestamp
+    boolean removed = ts.remove(201908110504L);
+    
+    // Read and remove in one step
+    String taken = ts.getAndRemove(201908110501L);
+    TimeSeriesEntry<String, String> takenEntry = ts.getAndRemoveEntry(201908110502L);
+    ```
+=== "Async"
+    ```java
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    RFuture<String> value = ts.getAsync(201908110504L);
+    RFuture<TimeSeriesEntry<String, String>> entry = ts.getEntryAsync(201908110504L);
+    RFuture<Integer> size = ts.sizeAsync();
+    RFuture<Boolean> removed = ts.removeAsync(201908110504L);
+    RFuture<String> taken = ts.getAndRemoveAsync(201908110501L);
+    RFuture<TimeSeriesEntry<String, String>> takenEntry = ts.getAndRemoveEntryAsync(201908110502L);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RTimeSeriesReactive<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    Mono<String> value = ts.get(201908110504L);
+    Mono<TimeSeriesEntry<String, String>> entry = ts.getEntry(201908110504L);
+    Mono<Integer> size = ts.size();
+    Mono<Boolean> removed = ts.remove(201908110504L);
+    Mono<String> taken = ts.getAndRemove(201908110501L);
+    Mono<TimeSeriesEntry<String, String>> takenEntry = ts.getAndRemoveEntry(201908110502L);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RTimeSeriesRx<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    Maybe<String> value = ts.get(201908110504L);
+    Maybe<TimeSeriesEntry<String, String>> entry = ts.getEntry(201908110504L);
+    Single<Integer> size = ts.size();
+    Single<Boolean> removed = ts.remove(201908110504L);
+    Maybe<String> taken = ts.getAndRemove(201908110501L);
+    Maybe<TimeSeriesEntry<String, String>> takenEntry = ts.getAndRemoveEntry(201908110502L);
     ```
 
 ### Range queries
 
-Time Series provides powerful range query capabilities for retrieving entries within a specified timestamp range. You can also poll entries (retrieve and remove) from the beginning or end of the series, making it suitable for queue-like processing of time-ordered data.
+Entries can be read over an inclusive timestamp range, in forward or reverse order, as values (`range`/`rangeReversed`) or as full entries (`entryRange`/`entryRangeReversed`). Each of these methods also has an overload that caps the number of results with a trailing `limit` argument.
 
 === "Sync"
     ```java
-    RTimeSeries<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Get values within timestamp range (inclusive)
-    Collection<String> values = ts.range(201908110501, 201908110508);
+    // Values within an inclusive timestamp range
+    Collection<String> values = ts.range(201908110501L, 201908110508L);
     
-    // Get entries (values with timestamps) within range
-    Collection<TimeSeriesEntry<String>> entries = ts.entryRange(201908110501, 201908110508);
+    // Values in reverse order
+    Collection<String> reversed = ts.rangeReversed(201908110501L, 201908110508L);
     
-    // Get entries in reverse order within range
-    Collection<TimeSeriesEntry<String>> reversed = ts.entryRangeReversed(201908110501, 201908110508);
+    // Cap the number of results
+    Collection<String> firstThree = ts.range(201908110501L, 201908110508L, 3);
     
-    // Poll (get and remove) first N entries
-    Collection<String> firstValues = ts.pollFirst(2);
-    Collection<TimeSeriesEntry<String>> firstEntries = ts.pollFirstEntries(2);
-    
-    // Poll (get and remove) last N entries
-    Collection<String> lastValues = ts.pollLast(2);
-    Collection<TimeSeriesEntry<String>> lastEntries = ts.pollLastEntries(2);
-    
-    // Poll entries within timestamp range with a limit
-    Collection<TimeSeriesEntry<String>> polled = ts.pollEntries(201908110501, 201908110508, 10);
-    
-    // Get first and last entries
-    TimeSeriesEntry<String> first = ts.first();
-    TimeSeriesEntry<String> last = ts.last();
-    
-    // Get first and last timestamps
-    Long firstTimestamp = ts.firstTimestamp();
-    Long lastTimestamp = ts.lastTimestamp();
+    // Full entries within a range (each carries timestamp, value, label)
+    Collection<TimeSeriesEntry<String, String>> entries =
+            ts.entryRange(201908110501L, 201908110508L);
+    Collection<TimeSeriesEntry<String, String>> entriesReversed =
+            ts.entryRangeReversed(201908110501L, 201908110508L);
     ```
 === "Async"
     ```java
-    RTimeSeries<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Get values within timestamp range (inclusive)
-    RFuture<Collection<String>> values = ts.rangeAsync(201908110501, 201908110508);
-    
-    // Get entries (values with timestamps) within range
-    RFuture<Collection<TimeSeriesEntry<String>>> entries = ts.entryRangeAsync(201908110501, 201908110508);
-    
-    // Get entries in reverse order within range
-    RFuture<Collection<TimeSeriesEntry<String>>> reversed = ts.entryRangeReversedAsync(201908110501, 201908110508);
-    
-    // Poll (get and remove) first N entries
-    RFuture<Collection<String>> firstValues = ts.pollFirstAsync(2);
-    RFuture<Collection<TimeSeriesEntry<String>>> firstEntries = ts.pollFirstEntriesAsync(2);
-    
-    // Poll (get and remove) last N entries
-    RFuture<Collection<String>> lastValues = ts.pollLastAsync(2);
-    RFuture<Collection<TimeSeriesEntry<String>>> lastEntries = ts.pollLastEntriesAsync(2);
-    
-    // Poll entries within timestamp range with a limit
-    RFuture<Collection<TimeSeriesEntry<String>>> polled = ts.pollEntriesAsync(201908110501, 201908110508, 10);
-    
-    // Get first and last entries
-    RFuture<TimeSeriesEntry<String>> first = ts.firstAsync();
-    RFuture<TimeSeriesEntry<String>> last = ts.lastAsync();
-    
-    // Get first and last timestamps
-    RFuture<Long> firstTimestamp = ts.firstTimestampAsync();
-    RFuture<Long> lastTimestamp = ts.lastTimestampAsync();
+    RFuture<Collection<String>> values = ts.rangeAsync(201908110501L, 201908110508L);
+    RFuture<Collection<String>> reversed = ts.rangeReversedAsync(201908110501L, 201908110508L);
+    RFuture<Collection<String>> firstThree = ts.rangeAsync(201908110501L, 201908110508L, 3);
+    RFuture<Collection<TimeSeriesEntry<String, String>>> entries =
+            ts.entryRangeAsync(201908110501L, 201908110508L);
+    RFuture<Collection<TimeSeriesEntry<String, String>>> entriesReversed =
+            ts.entryRangeReversedAsync(201908110501L, 201908110508L);
     ```
 === "Reactive"
     ```java
     RedissonReactiveClient redisson = redissonClient.reactive();
-    RTimeSeriesReactive<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeriesReactive<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Get values within timestamp range (inclusive)
-    Mono<Collection<String>> values = ts.range(201908110501, 201908110508);
-    
-    // Get entries (values with timestamps) within range
-    Mono<Collection<TimeSeriesEntry<String>>> entries = ts.entryRange(201908110501, 201908110508);
-    
-    // Get entries in reverse order within range
-    Mono<Collection<TimeSeriesEntry<String>>> reversed = ts.entryRangeReversed(201908110501, 201908110508);
-    
-    // Poll (get and remove) first N entries
-    Mono<Collection<String>> firstValues = ts.pollFirst(2);
-    Mono<Collection<TimeSeriesEntry<String>>> firstEntries = ts.pollFirstEntries(2);
-    
-    // Poll (get and remove) last N entries
-    Mono<Collection<String>> lastValues = ts.pollLast(2);
-    Mono<Collection<TimeSeriesEntry<String>>> lastEntries = ts.pollLastEntries(2);
-    
-    // Poll entries within timestamp range with a limit
-    Mono<Collection<TimeSeriesEntry<String>>> polled = ts.pollEntries(201908110501, 201908110508, 10);
-    
-    // Get first and last entries
-    Mono<TimeSeriesEntry<String>> first = ts.first();
-    Mono<TimeSeriesEntry<String>> last = ts.last();
-    
-    // Get first and last timestamps
-    Mono<Long> firstTimestamp = ts.firstTimestamp();
-    Mono<Long> lastTimestamp = ts.lastTimestamp();
+    Mono<Collection<String>> values = ts.range(201908110501L, 201908110508L);
+    Mono<Collection<String>> reversed = ts.rangeReversed(201908110501L, 201908110508L);
+    Mono<Collection<String>> firstThree = ts.range(201908110501L, 201908110508L, 3);
+    Mono<Collection<TimeSeriesEntry<String, String>>> entries =
+            ts.entryRange(201908110501L, 201908110508L);
+    Mono<Collection<TimeSeriesEntry<String, String>>> entriesReversed =
+            ts.entryRangeReversed(201908110501L, 201908110508L);
     ```
 === "RxJava3"
     ```java
     RedissonRxClient redisson = redissonClient.rxJava();
-    RTimeSeriesRx<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeriesRx<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Get values within timestamp range (inclusive)
-    Single<Collection<String>> values = ts.range(201908110501, 201908110508);
+    Single<Collection<String>> values = ts.range(201908110501L, 201908110508L);
+    Single<Collection<String>> reversed = ts.rangeReversed(201908110501L, 201908110508L);
+    Single<Collection<String>> firstThree = ts.range(201908110501L, 201908110508L, 3);
+    Single<Collection<TimeSeriesEntry<String, String>>> entries =
+            ts.entryRange(201908110501L, 201908110508L);
+    Single<Collection<TimeSeriesEntry<String, String>>> entriesReversed =
+            ts.entryRangeReversed(201908110501L, 201908110508L);
+    ```
+
+### Head, tail, and polling
+
+`first`/`last` return the value at the earliest/latest timestamp; `firstEntry`/`lastEntry` return the full entries, and `firstTimestamp`/`lastTimestamp` return just the timestamps. `first(count)`/`last(count)` read several head or tail values **without** removing them. The `poll*` methods, by contrast, **remove** what they return, and `removeRange` deletes every entry within a timestamp range.
+
+=== "Sync"
+    ```java
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Get entries (values with timestamps) within range
-    Single<Collection<TimeSeriesEntry<String>>> entries = ts.entryRange(201908110501, 201908110508);
+    // Earliest / latest value
+    String firstValue = ts.first();
+    String lastValue = ts.last();
     
-    // Get entries in reverse order within range
-    Single<Collection<TimeSeriesEntry<String>>> reversed = ts.entryRangeReversed(201908110501, 201908110508);
+    // Earliest / latest full entry
+    TimeSeriesEntry<String, String> firstEntry = ts.firstEntry();
+    TimeSeriesEntry<String, String> lastEntry = ts.lastEntry();
     
-    // Poll (get and remove) first N entries
-    Single<Collection<String>> firstValues = ts.pollFirst(2);
-    Single<Collection<TimeSeriesEntry<String>>> firstEntries = ts.pollFirstEntries(2);
+    // Earliest / latest timestamp
+    Long firstTs = ts.firstTimestamp();
+    Long lastTs = ts.lastTimestamp();
     
-    // Poll (get and remove) last N entries
-    Single<Collection<String>> lastValues = ts.pollLast(2);
-    Single<Collection<TimeSeriesEntry<String>>> lastEntries = ts.pollLastEntries(2);
+    // Peek at several head / tail values (no removal)
+    Collection<String> head = ts.first(3);
+    Collection<String> tail = ts.last(3);
     
-    // Poll entries within timestamp range with a limit
-    Single<Collection<TimeSeriesEntry<String>>> polled = ts.pollEntries(201908110501, 201908110508, 10);
+    // Poll = read AND remove, from the head or tail
+    Collection<String> polledHead = ts.pollFirst(2);
+    Collection<TimeSeriesEntry<String, String>> polledTail = ts.pollLastEntries(2);
+    String oldest = ts.pollFirst();
     
-    // Get first and last entries
-    Maybe<TimeSeriesEntry<String>> first = ts.first();
-    Maybe<TimeSeriesEntry<String>> last = ts.last();
+    // Delete every entry within a timestamp range
+    int deleted = ts.removeRange(201908110501L, 201908110508L);
+    ```
+=== "Async"
+    ```java
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
-    // Get first and last timestamps
-    Maybe<Long> firstTimestamp = ts.firstTimestamp();
-    Maybe<Long> lastTimestamp = ts.lastTimestamp();
+    RFuture<String> firstValue = ts.firstAsync();
+    RFuture<String> lastValue = ts.lastAsync();
+    RFuture<TimeSeriesEntry<String, String>> firstEntry = ts.firstEntryAsync();
+    RFuture<TimeSeriesEntry<String, String>> lastEntry = ts.lastEntryAsync();
+    RFuture<Long> firstTs = ts.firstTimestampAsync();
+    RFuture<Long> lastTs = ts.lastTimestampAsync();
+    
+    RFuture<Collection<String>> head = ts.firstAsync(3);
+    RFuture<Collection<String>> tail = ts.lastAsync(3);
+    
+    RFuture<Collection<String>> polledHead = ts.pollFirstAsync(2);
+    RFuture<Collection<TimeSeriesEntry<String, String>>> polledTail = ts.pollLastEntriesAsync(2);
+    RFuture<String> oldest = ts.pollFirstAsync();
+    
+    RFuture<Integer> deleted = ts.removeRangeAsync(201908110501L, 201908110508L);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RTimeSeriesReactive<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    Mono<String> firstValue = ts.first();
+    Mono<String> lastValue = ts.last();
+    Mono<TimeSeriesEntry<String, String>> firstEntry = ts.firstEntry();
+    Mono<TimeSeriesEntry<String, String>> lastEntry = ts.lastEntry();
+    Mono<Long> firstTs = ts.firstTimestamp();
+    Mono<Long> lastTs = ts.lastTimestamp();
+    
+    Mono<Collection<String>> head = ts.first(3);
+    Mono<Collection<String>> tail = ts.last(3);
+    
+    Mono<Collection<String>> polledHead = ts.pollFirst(2);
+    Mono<Collection<TimeSeriesEntry<String, String>>> polledTail = ts.pollLastEntries(2);
+    Mono<String> oldest = ts.pollFirst();
+    
+    Mono<Integer> deleted = ts.removeRange(201908110501L, 201908110508L);
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RTimeSeriesRx<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    Maybe<String> firstValue = ts.first();
+    Maybe<String> lastValue = ts.last();
+    Maybe<TimeSeriesEntry<String, String>> firstEntry = ts.firstEntry();
+    Maybe<TimeSeriesEntry<String, String>> lastEntry = ts.lastEntry();
+    Single<Long> firstTs = ts.firstTimestamp();
+    Single<Long> lastTs = ts.lastTimestamp();
+    
+    Single<Collection<String>> head = ts.first(3);
+    Single<Collection<String>> tail = ts.last(3);
+    
+    Single<Collection<String>> polledHead = ts.pollFirst(2);
+    Single<Collection<TimeSeriesEntry<String, String>>> polledTail = ts.pollLastEntries(2);
+    Maybe<String> oldest = ts.pollFirst();
+    
+    Single<Integer> deleted = ts.removeRange(201908110501L, 201908110508L);
+    ```
+
+### Iteration
+
+`RTimeSeries` implements `Iterable<V>`, so the synchronous interface can be looped over directly or streamed with `stream()`; `iterator(int count)` controls the batch size used to fetch elements. On the Reactive and RxJava3 interfaces, `iterator()` returns a `Flux<V>` and `Flowable<V>` respectively. (There is no streaming iterator on the asynchronous interface.)
+
+=== "Sync"
+    ```java
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    // Iterable<V> - values in timestamp order
+    for (String value : ts) {
+        System.out.println(value);
+    }
+    
+    // Java Stream
+    ts.stream().forEach(System.out::println);
+    
+    // Control the fetch batch size
+    Iterator<String> it = ts.iterator(10);
+    ```
+=== "Reactive"
+    ```java
+    RedissonReactiveClient redisson = redissonClient.reactive();
+    RTimeSeriesReactive<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    Flux<String> flux = ts.iterator();
+    flux.subscribe(value -> System.out.println(value));
+    ```
+=== "RxJava3"
+    ```java
+    RedissonRxClient redisson = redissonClient.rxJava();
+    RTimeSeriesRx<String, String> ts = redisson.getTimeSeries("myTimeSeries");
+    
+    Flowable<String> flowable = ts.iterator();
+    flowable.subscribe(value -> System.out.println(value));
     ```
 
 ### Listeners
@@ -2298,7 +4043,7 @@ Redisson allows binding listeners per `RTimeSeries` object. This requires the `n
 
 === "Sync"
     ```java
-    RTimeSeries<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
     int listenerId = ts.addListener(new ScoredSortedSetAddListener() {
          @Override
@@ -2333,7 +4078,7 @@ Redisson allows binding listeners per `RTimeSeries` object. This requires the `n
     ```
 === "Async"
     ```java
-    RTimeSeries<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeries<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
     RFuture<Integer> listenerFuture = ts.addListenerAsync(new ScoredSortedSetAddListener() {
          @Override
@@ -2369,7 +4114,7 @@ Redisson allows binding listeners per `RTimeSeries` object. This requires the `n
 === "Reactive"
     ```java
     RedissonReactiveClient redisson = redissonClient.reactive();
-    RTimeSeriesReactive<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeriesReactive<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
     Mono<Integer> listenerMono = ts.addListener(new ScoredSortedSetAddListener() {
          @Override
@@ -2405,7 +4150,7 @@ Redisson allows binding listeners per `RTimeSeries` object. This requires the `n
 === "RxJava3"
     ```java
     RedissonRxClient redisson = redissonClient.rxJava();
-    RTimeSeriesRx<String> ts = redisson.getTimeSeries("myTimeSeries");
+    RTimeSeriesRx<String, String> ts = redisson.getTimeSeries("myTimeSeries");
     
     Single<Integer> listenerSingle = ts.addListener(new ScoredSortedSetAddListener() {
          @Override
@@ -2441,7 +4186,7 @@ Redisson allows binding listeners per `RTimeSeries` object. This requires the `n
 
 ## Vector Set 
 
-Java implementation of Redis based [Vector Set](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RVectorSet.html) object is a specialized data type designed for managing high-dimensional vector data and enabling fast vector similarity search. [Vector sets](https://redis.io/docs/latest/develop/ai/search-and-query/vectors/) are similar to sorted sets but instead of a score, each element has a string representation of a vector, making them ideal for AI applications, machine learning models, and semantic search use cases.
+Java implementation of Redis based [Vector Set](https://www.javadoc.io/doc/org.redisson/redisson/latest/org/redisson/api/RVectorSet.html) object is a specialized data type designed for managing high-dimensional vector data and enabling fast vector similarity search. [Vector sets](https://redis.io/docs/latest/develop/ai/search-and-query/vectors/) are similar to sorted sets but instead of a score, each element has a string representation of a vector, making them ideal for AI applications, machine learning models, and semantic search use cases. This object is thread-safe.
 
 Requires **Redis 8.0+**.
 
@@ -2548,7 +4293,7 @@ Usage examples:
 	}).subscribe();
     ```
 
-### Similarity Search (HNSW Algorithm)
+### Similarity Search
 
 Vector sets use the Hierarchical Navigable Small World (HNSW) algorithm for approximate nearest neighbor search. HNSW provides sub-linear query time complexity and excellent recall rates, making it suitable for large-scale similarity search applications.
 
@@ -2794,7 +4539,7 @@ Usage examples:
 	}).subscribe();
     ```
 	
-### Use Cases (AI/ML Applications)
+### Use Cases
 
 Vector sets are particularly well-suited for AI and machine learning applications that require efficient similarity search over high-dimensional embeddings.
 
@@ -3085,3 +4830,5 @@ Usage examples:
 		return llm.generate(userQuestion, context);
 	}).subscribe();
     ```
+
+{% include 'data-and-services/bitvectorstore.md' %}

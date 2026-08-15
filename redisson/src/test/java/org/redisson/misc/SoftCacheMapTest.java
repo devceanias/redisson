@@ -56,7 +56,7 @@ public class SoftCacheMapTest {
     public void testSoftReferences() {
         Cache<Integer, Integer> map = ReferenceCacheMap.soft(0, 0);
         for(int i=0;i<100000;i++) {
-            map.put(i, new Integer(i));
+            map.put(i, i);
         }
 
         assertThat(map.values().stream().filter(Objects::nonNull).count()).isEqualTo(100000);

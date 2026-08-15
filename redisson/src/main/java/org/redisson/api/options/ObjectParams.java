@@ -16,6 +16,7 @@
 package org.redisson.api.options;
 
 import org.redisson.config.DelayStrategy;
+import org.redisson.config.ReadMode;
 
 /**
  *
@@ -30,5 +31,6 @@ public interface ObjectParams {
 
     DelayStrategy getRetryDelay();
 
+    ReadMode getReadMode();
 
 }

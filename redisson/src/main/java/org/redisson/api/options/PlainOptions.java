@@ -23,7 +23,7 @@ import org.redisson.client.codec.Codec;
  * @author Nikita Koksharov
  *
  */
-public interface PlainOptions extends CodecOptions<PlainOptions, Codec> {
+public interface PlainOptions extends CodecOptions<PlainOptions, Codec>, ReadModeOptions<PlainOptions> {
 
     /**
      * Creates options with the name of object instance

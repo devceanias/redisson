@@ -1,5 +1,7 @@
 package org.redisson.rx;
 
+import io.reactivex.rxjava3.observers.TestObserver;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.Arrays;
@@ -8,6 +10,7 @@ import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -132,12 +135,12 @@ public class RedissonScoredSortedSetRxTest extends BaseRxTest {
     public void testIteratorSequence() {
         RScoredSortedSetRx<Integer> set = redisson.getScoredSortedSet("simple");
         for (int i = 0; i < 1000; i++) {
-            sync(set.add(i, Integer.valueOf(i)));
+            sync(set.add(i, i));
         }
 
         Set<Integer> setCopy = new HashSet<Integer>();
         for (int i = 0; i < 1000; i++) {
-            setCopy.add(Integer.valueOf(i));
+            setCopy.add(i);
         }
 
         checkIterator(set, setCopy);
@@ -329,6 +332,31 @@ public class RedissonScoredSortedSetRxTest extends BaseRxTest {
     }
 
     @Test
+    public void testEmptyCollectionResultsAsAbsent() {
+        RScoredSortedSetRx<String> set = redisson.getScoredSortedSet("{simple}:empty");
+
+        assertNoValues(set.readAll().test());
+        assertNoValues(set.valueRange(0, -1).test());
+        assertNoValues(set.entryRange(0, -1).test());
+        assertNoValues(set.random(1).test());
+        assertNoValues(set.randomEntries(1).test());
+        assertNoValues(set.pollFirst(1).test());
+        assertNoValues(set.pollLast(1).test());
+        assertNoValues(set.pollFirstEntries(1).test());
+        assertNoValues(set.pollLastEntries(1).test());
+        assertNoValues(set.readIntersection("{simple}:other").test());
+        assertNoValues(set.readUnion("{simple}:other").test());
+        assertNoValues(set.readDiff("{simple}:other").test());
+    }
+
+    private static void assertNoValues(TestObserver<?> observer) {
+        observer.awaitDone(1, TimeUnit.SECONDS);
+        observer.assertNoErrors();
+        observer.assertComplete();
+        observer.assertNoValues();
+    }
+
+    @Test
     public void testAddAndGet() throws InterruptedException {
         RScoredSortedSetRx<Integer> set = redisson.getScoredSortedSet("simple", StringCodec.INSTANCE);
         sync(set.add(1, 100));
@@ -341,7 +369,7 @@ public class RedissonScoredSortedSetRxTest extends BaseRxTest {
         RScoredSortedSetRx<Integer> set2 = redisson.getScoredSortedSet("simple", StringCodec.INSTANCE);
         sync(set2.add(100.2, 1));
 
-        Double res2 = sync(set2.addScore(1, new Double(12.1)));
+        Double res2 = sync(set2.addScore(1, 12.1));
         Assertions.assertTrue(new Double(112.3).compareTo(res2) == 0);
         res2 = sync(set2.getScore(1));
         Assertions.assertTrue(new Double(112.3).compareTo(res2) == 0);

@@ -29,7 +29,7 @@ public class StreamIdConvertor implements Convertor<StreamMessageId> {
     @Override
     public StreamMessageId convert(Object id) {
         String[] parts = id.toString().split("-");
-        return new StreamMessageId(Long.valueOf(parts[0]), Long.valueOf(parts[1]));
+        return new StreamMessageId(Long.parseLong(parts[0]), Long.parseLong(parts[1]));
     }
 
 }

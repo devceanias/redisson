@@ -84,7 +84,15 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
             CompletionStage<RedisConnection> connectionFuture = connectToNode(cfg, addr, addr.getHost());
             RedisConnection connection = null;
             try {
-                connection = connectionFuture.toCompletableFuture().join();
+                // bound the wait; an unbounded join() on a half-open seed never completes the lazyConnect latch, parking all callers
+                connection = connectionFuture.toCompletableFuture().get(config.getConnectTimeout(), TimeUnit.MILLISECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                if (ex != null) {
+                    ex.addSuppressed(e);
+                } else {
+                    ex = e;
+                }
             } catch (Exception e) {
                 if (ex != null) {
                     ex.addSuppressed(e);
@@ -100,10 +108,10 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
             if (Role.master.equals(role)) {
                 currentMaster.set(connection.getRedisClient().getAddr());
                 log.info("{} is the master", addr);
-                this.config.setMasterAddress(addr.toString());
+                this.config.setMasterAddress(addr.toURIString());
             } else {
                 log.info("{} is a slave", addr);
-                this.config.addSlaveAddress(addr.toString());
+                this.config.addSlaveAddress(addr.toURIString());
             }
         }
 
@@ -290,5 +298,13 @@ public class ReplicatedConnectionManager extends MasterSlaveConnectionManager {
         
         closeNodeConnections();
         super.shutdown(quietPeriod, timeout, unit);
+    }
+
+    @Override
+    public CompletionStage<Void> shutdownAsync(long quietPeriod, long timeout, TimeUnit unit) {
+        if (monitorFuture != null) {
+            monitorFuture.cancel();
+        }
+        return closeNodeConnectionsAsync().thenCompose(v -> super.shutdownAsync(quietPeriod, timeout, unit));
     }
 }

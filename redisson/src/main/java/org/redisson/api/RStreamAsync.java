@@ -103,6 +103,17 @@ public interface RStreamAsync<K, V> extends RExpirableAsync {
     RFuture<Map<StreamMessageId, StreamEntryStatus>> ackAsync(StreamAckArgs args);
 
     /**
+     * Releases pending messages back to the group without acknowledging them,
+     * making them available for redelivery.
+     *
+     * Requires <b>Redis 8.8.0 and higher.</b>
+     *
+     * @param args - method arguments object
+     * @return negatively acknowledged messages amount
+     */
+    RFuture<Long> nackAsync(StreamNackArgs args);
+
+    /**
      * Returns common info about pending messages by group name.
      * 
      * @param groupName - name of group

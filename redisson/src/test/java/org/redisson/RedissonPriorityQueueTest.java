@@ -129,12 +129,12 @@ public class RedissonPriorityQueueTest extends RedisDockerTest {
     public void testIteratorSequence() {
         RPriorityQueue<Integer> set = redisson.getPriorityQueue("set");
         for (int i = 0; i < 1000; i++) {
-            set.add(Integer.valueOf(i));
+            set.add(i);
         }
 
         Queue<Integer> setCopy = new PriorityQueue<Integer>();
         for (int i = 0; i < 1000; i++) {
-            setCopy.add(Integer.valueOf(i));
+            setCopy.add(i);
         }
         
         checkIterator(set, setCopy);

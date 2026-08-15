@@ -29,7 +29,7 @@ public interface StreamAckArgs extends StreamReferencesArgs<StreamAckArgs> {
      * @param groupName name of group
      * @return arguments object
      */
-    static StreamMessageIdArgs group(String groupName) {
+    static StreamMessageIdArgs<StreamAckArgs> group(String groupName) {
         return new StreamAckParams(groupName);
     }
 }

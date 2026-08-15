@@ -105,11 +105,11 @@ public class RedissonFasterMultiLockTest extends BaseConcurrentTest {
         String lockName = ((RedissonFasterMultiLock) lock).getLockName(Thread.currentThread().getId());
         lock.lock();
         RedissonObject redissonObject = (RedissonObject) (lock);
-        long fieldExpireTime1 = Long.valueOf(mapCache.get(hashValue(redissonObject, field1) + ":" + lockName + ":expire_time"));
-        long fieldExpireTime2 = Long.valueOf(mapCache.get(hashValue(redissonObject, field2) + ":" + lockName + ":expire_time"));
+        long fieldExpireTime1 = Long.parseLong(mapCache.get(hashValue(redissonObject, field1) + ":" + lockName + ":expire_time"));
+        long fieldExpireTime2 = Long.parseLong(mapCache.get(hashValue(redissonObject, field2) + ":" + lockName + ":expire_time"));
         Thread.sleep(Duration.ofSeconds(17));
-        long fieldExpireTime11 = Long.valueOf(mapCache.get(hashValue(redissonObject, field1) + ":" + lockName + ":expire_time"));
-        long fieldExpireTime22 = Long.valueOf(mapCache.get(hashValue(redissonObject, field2) + ":" + lockName + ":expire_time"));
+        long fieldExpireTime11 = Long.parseLong(mapCache.get(hashValue(redissonObject, field1) + ":" + lockName + ":expire_time"));
+        long fieldExpireTime22 = Long.parseLong(mapCache.get(hashValue(redissonObject, field2) + ":" + lockName + ":expire_time"));
 
         assertThat(fieldExpireTime11 > fieldExpireTime1).isTrue();
         assertThat(fieldExpireTime22 > fieldExpireTime2).isTrue();

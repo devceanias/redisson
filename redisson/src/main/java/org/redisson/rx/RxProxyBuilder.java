@@ -20,6 +20,8 @@ import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.core.Single;
 import org.redisson.misc.ProxyBuilder;
 
+import java.util.Collection;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletionStage;
 
@@ -45,7 +47,10 @@ public class RxProxyBuilder {
             if (instanceMethod.getReturnType() == Single.class) {
                 return flowable.singleOrError();
             }
-            return flowable.singleElement();
+            return flowable
+                    .filter(v -> !(v instanceof Map && ((Map<?, ?>) v).isEmpty())
+                            && !(v instanceof Collection && ((Collection<?>) v).isEmpty()))
+                    .singleElement();
         }, instance, implementation, clazz, commandExecutor.getServiceManager());
     }
     

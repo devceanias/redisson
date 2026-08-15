@@ -61,7 +61,7 @@ public class RedisCommonBatchExecutor extends RedisExecutor<Object, Void> {
                 retryAttempts(connectionManager, options),
                 retryInterval(connectionManager, options),
                 timeout(connectionManager, options),
-                false);
+                false, null);
         this.options = options;
         this.entry = entry;
         this.slots = slots;

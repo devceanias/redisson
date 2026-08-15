@@ -347,6 +347,30 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
 
         Map.Entry<K, CachedValue<K, V>> mapEntry;
 
+        private Map.Entry<K, CachedValue<K, V>> lastReturned;
+
+        final Map.Entry<K, CachedValue<K, V>> nextEntry() {
+            // hasNext() is what advances the cursor, so call it when next() is used alone
+            if (mapEntry == null && !hasNext()) {
+                throw new NoSuchElementException();
+            }
+            lastReturned = mapEntry;
+            mapEntry = null;
+            return lastReturned;
+        }
+
+        @Override
+        public void remove() {
+            if (lastReturned == null) {
+                throw new IllegalStateException();
+            }
+            CachedValue<K, V> value = lastReturned.getValue();
+            if (map.remove(lastReturned.getKey(), value)) {
+                onValueRemove(value);
+            }
+            lastReturned = null;
+        }
+
         @Override
         public boolean hasNext() {
             if (mapEntry != null) {
@@ -379,22 +403,7 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
             return new MapIterator<K>() {
                 @Override
                 public K next() {
-                    if (mapEntry == null) {
-                        throw new NoSuchElementException();
-                    }
-
-                    K key = mapEntry.getKey();
-                    mapEntry = null;
-                    return key;
-                }
-
-                @Override
-                public void remove() {
-                    if (mapEntry == null) {
-                        throw new IllegalStateException();
-                    }
-                    map.remove(mapEntry.getKey());
-                    mapEntry = null;
+                    return nextEntry().getKey();
                 }
             };
         }
@@ -428,22 +437,7 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
             return new MapIterator<V>() {
                 @Override
                 public V next() {
-                    if (mapEntry == null) {
-                        throw new NoSuchElementException();
-                    }
-
-                    V value = readValue(mapEntry.getValue());
-                    mapEntry = null;
-                    return value;
-                }
-
-                @Override
-                public void remove() {
-                    if (mapEntry == null) {
-                        throw new IllegalStateException();
-                    }
-                    map.remove(mapEntry.getKey(), mapEntry.getValue());
-                    mapEntry = null;
+                    return readValue(nextEntry().getValue());
                 }
             };
         }
@@ -471,22 +465,8 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
             return new MapIterator<Map.Entry<K, V>>() {
                 @Override
                 public Map.Entry<K, V> next() {
-                    if (mapEntry == null) {
-                        throw new NoSuchElementException();
-                    }
-
-                    SimpleEntry<K, V> result = new SimpleEntry<K, V>(mapEntry.getKey(), readValue(mapEntry.getValue()));
-                    mapEntry = null;
-                    return result;
-                }
-
-                @Override
-                public void remove() {
-                    if (mapEntry == null) {
-                        throw new IllegalStateException();
-                    }
-                    map.remove(mapEntry.getKey(), mapEntry.getValue());
-                    mapEntry = null;
+                    Map.Entry<K, CachedValue<K, V>> entry = nextEntry();
+                    return new SimpleEntry<K, V>(entry.getKey(), readValue(entry.getValue()));
                 }
             };
         }
@@ -495,17 +475,14 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
             if (!(o instanceof Map.Entry))
                 return false;
             Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
-            Object key = e.getKey();
-            V value = get(key);
-            return value != null && value.equals(e);
+            V value = get(e.getKey());
+            return value != null && value.equals(e.getValue());
         }
 
         public boolean remove(Object o) {
             if (o instanceof Map.Entry) {
                 Map.Entry<?, ?> e = (Map.Entry<?, ?>) o;
-                Object key = e.getKey();
-                Object value = e.getValue();
-                return AbstractCacheMap.this.map.remove(key, value);
+                return AbstractCacheMap.this.remove(e.getKey(), e.getValue());
             }
             return false;
         }
@@ -611,16 +588,20 @@ public abstract class AbstractCacheMap<K, V> implements Cache<K, V> {
     @Override
     public V computeIfPresent(K key, BiFunction<? super K, ? super V, ? extends V> remappingFunction) {
         CachedValue<K, V> v = map.computeIfPresent(key, (k, e) -> {
-            if (!isValueExpired(e)) {
-                V value = remappingFunction.apply(k, e.getValue());
-                if (value == null) {
-                    return null;
-                }
-                CachedValue<K, V> entry = create(key, value, timeToLiveInMillis, maxIdleInMillis);
-                onValueCreate(entry);
-                return entry;
+            if (isValueExpired(e)) {
+                onValueRemove(e);
+                return null;
             }
-            return null;
+            V value = remappingFunction.apply(k, e.getValue());
+            // every path below drops `e` from the map, so it must always be retired -
+            // otherwise it is orphaned in the subclass's eviction bookkeeping
+            onValueRemove(e);
+            if (value == null) {
+                return null;
+            }
+            CachedValue<K, V> entry = create(key, value, timeToLiveInMillis, maxIdleInMillis);
+            onValueCreate(entry);
+            return entry;
         });
         if (v != null) {
             return v.getValue();

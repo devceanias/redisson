@@ -145,6 +145,8 @@ public final class ServiceManager {
 
     private NatMapper natMapper = NatMapper.direct();
 
+    private volatile boolean hashImportDisabled;
+
     private static final Map<InetSocketAddress, Set<String>> SCRIPT_SHA_CACHE = new ConcurrentHashMap<>();
 
     private static final Map<String, String> SHA_CACHE = new LRUCacheMap<>(500, 0, 0);
@@ -413,6 +415,20 @@ public final class ServiceManager {
         lastFutures.clear();
     }
 
+    public CompletableFuture<Void> shutdownFuturesAsync(long timeout, TimeUnit unit) {
+        CompletableFuture<?>[] array = StreamSupport.stream(lastFutures.spliterator(), false)
+                .toArray(CompletableFuture[]::new);
+        CompletableFuture<Void> allFutures = CompletableFuture.allOf(array);
+        Timeout timeoutHandle = newTimeout(t -> allFutures.completeExceptionally(new TimeoutException()), timeout, unit);
+        return allFutures
+                .whenComplete((v, e) -> timeoutHandle.cancel())
+                .exceptionally(e -> null)
+                .thenRun(() -> {
+                    lastFutures.forEach(f -> f.completeExceptionally(new RedissonShutdownException("Redisson is shutdown")));
+                    lastFutures.clear();
+                });
+    }
+
     public void close() {
         shutdownLatch.set(true);
     }
@@ -447,6 +463,14 @@ public final class ServiceManager {
 
     public MasterSlaveServersConfig getConfig() {
         return config;
+    }
+
+    public boolean isHashImportDisabled() {
+        return hashImportDisabled;
+    }
+
+    public void disableHashImport() {
+        hashImportDisabled = true;
     }
 
     public NameMapper getNameMapper() {
@@ -728,6 +752,12 @@ public final class ServiceManager {
 
     public Map<String, AtomicInteger> getAddersCounter() {
         return addersCounter;
+    }
+
+    private final Map<Long, MasterSlaveEntry> searchCursorRoutes = new ConcurrentHashMap<>();
+
+    public Map<Long, MasterSlaveEntry> getSearchCursorRoutes() {
+        return searchCursorRoutes;
     }
 
     private final MapResolver mapResolver = new MapResolver(this);

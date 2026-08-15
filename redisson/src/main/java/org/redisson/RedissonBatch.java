@@ -39,6 +39,16 @@ public class RedissonBatch implements RBatch {
     }
 
     @Override
+    public <V> RArrayAsync<V> getArray(String name) {
+        return new RedissonArray<V>(executorService, name);
+    }
+
+    @Override
+    public <V> RArrayAsync<V> getArray(String name, Codec codec) {
+        return new RedissonArray<V>(codec, executorService, name);
+    }
+
+    @Override
     public <V> RBucketAsync<V> getBucket(String name) {
         return new RedissonBucket<V>(executorService, name);
     }
@@ -366,6 +376,26 @@ public class RedissonBatch implements RBatch {
     @Override
     public <V> RCuckooFilterAsync<V> getCuckooFilter(String name, Codec codec) {
         return new RedissonCuckooFilter<V>(codec, executorService, name);
+    }
+
+    @Override
+    public RTDigestAsync getTDigest(String name) {
+        return new RedissonTDigest(executorService, name);
+    }
+
+    @Override
+    public <V> RTopKAsync<V> getTopK(String name) {
+        return getTopK(name, null);
+    }
+
+    @Override
+    public <V> RTopKAsync<V> getTopK(String name, Codec codec) {
+        return new RedissonTopK<V>(codec, executorService, name);
+    }
+
+    @Override
+    public RVectorSetAsync getVectorSet(String name) {
+        return new RedissonVectorSet(executorService, name);
     }
 
 

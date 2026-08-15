@@ -17,6 +17,7 @@ package org.redisson.api.options;
 
 import org.redisson.config.ConstantDelay;
 import org.redisson.config.DelayStrategy;
+import org.redisson.config.ReadMode;
 
 import java.time.Duration;
 
@@ -31,6 +32,7 @@ class BaseOptions<T extends InvocationOptions<T>, C> implements CodecOptions<T, 
     private int timeout;
     private int retryAttempts = -1;
     private DelayStrategy retryDelay;
+    private ReadMode readMode;
 
     @Override
     public T codec(C codec) {
@@ -62,6 +64,11 @@ class BaseOptions<T extends InvocationOptions<T>, C> implements CodecOptions<T, 
         return (T) this;
     }
 
+    public T readMode(ReadMode readMode) {
+        this.readMode = readMode;
+        return (T) this;
+    }
+
     public int getTimeout() {
         return timeout;
     }
@@ -77,5 +84,10 @@ class BaseOptions<T extends InvocationOptions<T>, C> implements CodecOptions<T, 
     @Override
     public DelayStrategy getRetryDelay() {
         return retryDelay;
+    }
+
+    @Override
+    public ReadMode getReadMode() {
+        return readMode;
     }
 }

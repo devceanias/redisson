@@ -33,6 +33,7 @@ import java.net.InetSocketAddress;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -45,6 +46,8 @@ import java.util.stream.Collectors;
 public class MasterSlaveConnectionManager implements ConnectionManager {
 
     public static final int MAX_SLOT = 16384;
+
+    private static final FailedNodeDetector DEFAULT_FAILED_NODE_DETECTOR = new FailedConnectionDetector();
 
     protected final ClusterSlotRange singleSlotRange = new ClusterSlotRange(0, MAX_SLOT-1);
 
@@ -64,7 +67,13 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
 
     protected final AtomicReference<CompletableFuture<Void>> lazyConnectLatch = new AtomicReference<>();
 
+    // Owns lazyConnectLatch: a synchronous entry teardown during doConnect re-enters lazyConnect on
+    // this same thread, which must not join() the latch it holds.
+    private volatile Thread connectingThread;
+
     private boolean lastAttempt;
+
+    protected final AtomicInteger rrCounter = new AtomicInteger(0);
 
     MasterSlaveConnectionManager(BaseMasterSlaveServersConfig<?> cfg, Config configCopy) {
         if (cfg instanceof MasterSlaveServersConfig) {
@@ -90,6 +99,13 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         nodeConnections.values().stream()
                 .map(c -> c.getRedisClient().shutdownAsync())
                 .forEach(f -> f.toCompletableFuture().join());
+    }
+
+    protected CompletableFuture<Void> closeNodeConnectionsAsync() {
+        List<CompletableFuture<Void>> futures = nodeConnections.values().stream()
+                .map(c -> c.getRedisClient().shutdownAsync().toCompletableFuture())
+                .collect(Collectors.toList());
+        return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]));
     }
 
     protected void closeNodeConnection(RedisConnection conn) {
@@ -151,8 +167,36 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
         return Collections.emptyList();
     }
 
+    /**
+     * Selects the next master entry using round-robin strategy.
+     * In single-server mode returns the single master; in cluster mode
+     * distributes across all cluster masters.
+     */
+    public MasterSlaveEntry getNextEntry() {
+        lazyConnect();
+
+        if (masterSlaveEntry != null) {
+            return masterSlaveEntry;
+        }
+
+        Collection<MasterSlaveEntry> entries = getEntrySet();
+        if (entries.isEmpty()) {
+            return null;
+        }
+
+        List<MasterSlaveEntry> list = new ArrayList<>(entries);
+        int index = Math.floorMod(rrCounter.getAndIncrement(), list.size());
+        return list.get(index);
+    }
+
     protected final void lazyConnect() {
         if (isInitialized()) {
+            return;
+        }
+
+        // Re-entry by the connecting thread itself: return rather than join() the latch it holds,
+        // which would self-deadlock.
+        if (Thread.currentThread() == connectingThread) {
             return;
         }
 
@@ -170,12 +214,17 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             }
         }
 
+        // This thread now owns the latch; mark it so a synchronous re-entry into lazyConnect
+        // returns instead of join()ing the latch only it can complete.
+        connectingThread = Thread.currentThread();
         try {
             connect();
             newFuture.complete(null);
         } catch (Exception e) {
             newFuture.completeExceptionally(e);
             throw e;
+        } finally {
+            connectingThread = null;
         }
     }
 
@@ -248,11 +297,8 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             String hostname = hostnameMapper.apply(uri);
             CompletableFuture<RedisClient> masterFuture = masterSlaveEntry.setupMasterEntry(uri, hostname);
             try {
-                if (config.getMasterConnectionMinimumIdleSize() == 0) {
-                    masterFuture.join();
-                } else {
-                    masterFuture.get(config.getConnectTimeout()*config.getMasterConnectionMinimumIdleSize(), TimeUnit.MILLISECONDS);
-                }
+                // bound the wait even when minimumIdleSize == 0; an unbounded join() never completes the lazyConnect latch if master entry setup stalls, parking all callers
+                masterFuture.get((long) config.getConnectTimeout() * Math.max(1, config.getMasterConnectionMinimumIdleSize()), TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 throw new RedisConnectionException(e);
@@ -263,11 +309,8 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
             if (!config.isSlaveNotUsed()) {
                 CompletableFuture<Void> fs = masterSlaveEntry.initSlaveBalancer(hostnameMapper);
                 try {
-                    if (config.getSlaveConnectionMinimumIdleSize() == 0) {
-                        fs.join();
-                    } else {
-                        fs.get(config.getConnectTimeout()*config.getSlaveConnectionMinimumIdleSize(), TimeUnit.MILLISECONDS);
-                    }
+                    // bound the wait even when minimumIdleSize == 0; an unbounded join() never completes the lazyConnect latch if the slave balancer stalls, parking all callers
+                    fs.get((long) config.getConnectTimeout() * Math.max(1, config.getSlaveConnectionMinimumIdleSize()), TimeUnit.MILLISECONDS);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     throw new RedisConnectionException(e);
@@ -428,6 +471,10 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
     protected RedisClientConfig createRedisConfig(NodeType type, RedisURI address, int timeout, int commandTimeout, String sslHostname) {
         Config serviceCfg = serviceManager.getCfg();
         RedisClientConfig redisConfig = new RedisClientConfig();
+        FailedNodeDetector failedNodeDetector = DEFAULT_FAILED_NODE_DETECTOR;
+        if (type == NodeType.SLAVE) {
+            failedNodeDetector = config.getFailedSlaveNodeDetector();
+        }
         redisConfig.setAddress(address)
                 .setTimer(serviceManager.getTimer())
                 .setExecutor(serviceManager.getExecutor())
@@ -454,7 +501,7 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
                 .setUsername(Objects.toString(serviceCfg.getUsername(), config.getUsername()))
                 .setPassword(Objects.toString(serviceCfg.getPassword(), config.getPassword()))
                 .setNettyHook(serviceCfg.getNettyHook())
-                .setFailedNodeDetector(config.getFailedSlaveNodeDetector())
+                .setFailedNodeDetector(failedNodeDetector)
                 .setProtocol(serviceCfg.getProtocol())
                 .setCapabilities(serviceCfg.getValkeyCapabilities())
                 .setReconnectionDelay(config.getReconnectionDelay())
@@ -522,6 +569,10 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
     }
 
     private NodeType getNodeType(NodeType type, InetSocketAddress address) {
+        if (!isInitialized()) {
+            // pre-init getEntry() can trigger lazyConnect and park the caller on the latch held by the connecting thread.
+            return type;
+        }
         if (getServiceManager().getCfg().isSingleConfig()) {
             return NodeType.MASTER;
         }
@@ -615,6 +666,68 @@ public class MasterSlaveConnectionManager implements ConnectionManager {
     @Override
     public void shutdown() {
         shutdown(0, 10, TimeUnit.SECONDS); //default netty value
+    }
+
+    @Override
+    public CompletionStage<Void> shutdownAsync(long quietPeriod, long timeout, TimeUnit unit) {
+        if (dnsMonitor != null) {
+            dnsMonitor.stop();
+        }
+        long timeoutInNanos = unit.toNanos(timeout);
+
+        serviceManager.close();
+        serviceManager.getConnectionWatcher().stop();
+        serviceManager.getResolverGroup().close();
+
+        return serviceManager.shutdownFuturesAsync(timeout, unit)
+                .thenCompose(v -> {
+                    if (!isInitialized()) {
+                        return CompletableFuture.completedFuture(null);
+                    }
+                    List<CompletableFuture<Void>> futures = new ArrayList<>();
+                    for (MasterSlaveEntry entry : getEntrySet()) {
+                        futures.add(entry.shutdownAsync());
+                    }
+                    CompletableFuture<Void> allEntries = CompletableFuture.allOf(
+                            futures.toArray(new CompletableFuture[0]));
+                    serviceManager.newTimeout(t -> allEntries.completeExceptionally(new TimeoutException()),
+                            timeoutInNanos, TimeUnit.NANOSECONDS);
+                    return allEntries.exceptionally(e -> null);
+                })
+                .thenCompose(v -> {
+                    if (serviceManager.getCfg().getExecutor() == null) {
+                        serviceManager.getExecutor().shutdown();
+                        return CompletableFuture.runAsync(() -> {
+                            try {
+                                serviceManager.getExecutor().awaitTermination(timeoutInNanos, TimeUnit.NANOSECONDS);
+                            } catch (InterruptedException e) {
+                                Thread.currentThread().interrupt();
+                            }
+                        });
+                    }
+                    return CompletableFuture.completedFuture(null);
+                })
+                .thenCompose(v -> {
+                    serviceManager.getTimer().stop();
+                    if (serviceManager.getCfg().getEventLoopGroup() == null) {
+                        long quietPeriodNanos = unit.toNanos(quietPeriod);
+                        if (timeoutInNanos < quietPeriodNanos) {
+                            quietPeriodNanos = 0;
+                        }
+                        io.netty.util.concurrent.Future<?> nettyFuture = serviceManager.getGroup()
+                                .shutdownGracefully(quietPeriodNanos, timeoutInNanos, TimeUnit.NANOSECONDS);
+                        CompletableFuture<Void> cf = new CompletableFuture<>();
+                        nettyFuture.addListener(f -> {
+                            if (f.isSuccess()) {
+                                cf.complete(null);
+                            } else {
+                                cf.completeExceptionally(f.cause());
+                            }
+                        });
+                        return cf;
+                    }
+                    return CompletableFuture.completedFuture(null);
+                });
     }
 
     @Override

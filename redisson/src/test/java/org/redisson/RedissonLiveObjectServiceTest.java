@@ -328,6 +328,12 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
         private TestIndexed obj;
         @RIndex
         private int num2;
+        @RIndex
+        private List<String> tags;
+        @RIndex
+        private Set<Integer> scores;
+        @RIndex
+        private String[] aliases;
 
         private List<Long> coll;
 
@@ -394,6 +400,30 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
         public void setNum2(int num2) {
             this.num2 = num2;
         }
+
+        public List<String> getTags() {
+            return tags;
+        }
+
+        public void setTags(List<String> tags) {
+            this.tags = tags;
+        }
+
+        public Set<Integer> getScores() {
+            return scores;
+        }
+
+        public void setScores(Set<Integer> scores) {
+            this.scores = scores;
+        }
+
+        public String[] getAliases() {
+            return aliases;
+        }
+
+        public void setAliases(String[] aliases) {
+            this.aliases = aliases;
+        }
     }
 
     @Test
@@ -456,6 +486,256 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
         for (TestIndexed testIndexed : objects2) {
             assertThat(testIndexed.getId()).isIn("1", "2");
         }
+    }
+
+    @Test
+    public void testCollectionIndexPersistAndFind() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setTags(Arrays.asList("java", "redis"));
+        t1.setScores(new HashSet<>(Arrays.asList(10, 20)));
+        t1.setAliases(new String[]{"foo", "bar"});
+        t1 = s.persist(t1);
+
+        TestIndexed t2 = new TestIndexed("2");
+        t2.setTags(Arrays.asList("java", "mongodb"));
+        t2.setScores(new HashSet<>(Arrays.asList(20, 30)));
+        t2.setAliases(new String[]{"bar", "baz"});
+        t2 = s.persist(t2);
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.eq("tags", "java"));
+        assertThat(result).hasSize(2);
+
+        result = s.find(TestIndexed.class, Conditions.eq("scores", 20));
+        assertThat(result).hasSize(2);
+
+        result = s.find(TestIndexed.class, Conditions.eq("aliases", "bar"));
+        assertThat(result).hasSize(2);
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "redis"));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
+
+        result = s.find(TestIndexed.class, Conditions.in("tags", "redis", "mongodb"));
+        assertThat(result).hasSize(2);
+    }
+
+    @Test
+    public void testCollectionIndexUpdate() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setTags(Arrays.asList("java", "redis"));
+        t1 = s.persist(t1);
+
+        t1.setTags(Arrays.asList("python", "redis"));
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.eq("tags", "java"));
+        assertThat(result).isEmpty();
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "python"));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "redis"));
+        assertThat(result).hasSize(1);
+    }
+
+    @Test
+    public void testCollectionIndexDelete() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setTags(Arrays.asList("java", "redis"));
+        t1 = s.persist(t1);
+
+        TestIndexed t2 = new TestIndexed("2");
+        t2.setTags(Arrays.asList("java", "mongodb"));
+        t2 = s.persist(t2);
+
+        s.delete(TestIndexed.class, "1");
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.eq("tags", "java"));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("2");
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "redis"));
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    public void testCollectionIndexGt() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setScores(new HashSet<>(Arrays.asList(10, 20, 30)));
+        s.persist(t1);
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.gt("scores", 15));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
+    }
+
+    @Test
+    public void testCollectionIndexDirectMutation() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setTags(new ArrayList<>(Arrays.asList("java", "redis")));
+        t1 = s.persist(t1);
+
+        // Mutate collection directly via getter — should update index
+        t1.getTags().add("kotlin");
+        assertThat(t1.getTags()).contains("kotlin");
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.eq("tags", "kotlin"));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
+    }
+
+    @Test
+    public void testCollectionIndexRemoveElement() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setTags(new ArrayList<>(Arrays.asList("java", "redis", "go")));
+        t1 = s.persist(t1);
+
+        t1.getTags().remove("java");
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.eq("tags", "java"));
+        assertThat(result).isEmpty();
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "redis"));
+        assertThat(result).hasSize(1);
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "go"));
+        assertThat(result).hasSize(1);
+    }
+
+    @Test
+    public void testCollectionIndexClearCollection() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setTags(new ArrayList<>(Arrays.asList("java", "redis")));
+        t1 = s.persist(t1);
+
+        t1.getTags().clear();
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.eq("tags", "java"));
+        assertThat(result).isEmpty();
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "redis"));
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    public void testCollectionIndexAddAll() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setTags(new ArrayList<>(Arrays.asList("java")));
+        t1 = s.persist(t1);
+
+        t1.getTags().addAll(Arrays.asList("go", "rust"));
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.eq("tags", "go"));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "rust"));
+        assertThat(result).hasSize(1);
+
+        result = s.find(TestIndexed.class, Conditions.eq("tags", "java"));
+        assertThat(result).hasSize(1);
+    }
+
+    @Test
+    public void testCollectionIndexRangeEmpty() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setScores(new HashSet<>(Arrays.asList(10, 20)));
+        s.persist(t1);
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.gt("scores", 100));
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    public void testCollectionIndexRangeBoundary() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setScores(new HashSet<>(Arrays.asList(10)));
+        s.persist(t1);
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.gt("scores", 10));
+        assertThat(result).isEmpty();
+
+        result = s.find(TestIndexed.class, Conditions.ge("scores", 10));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
+    }
+
+    @Test
+    public void testCollectionIndexRangeOr() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setScores(new HashSet<>(Arrays.asList(50)));
+        s.persist(t1);
+
+        TestIndexed t2 = new TestIndexed("2");
+        t2.setScores(new HashSet<>(Arrays.asList(3)));
+        s.persist(t2);
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class,
+                Conditions.or(Conditions.gt("scores", 40), Conditions.lt("scores", 5)));
+        assertThat(result).hasSize(2);
+    }
+
+    @Test
+    public void testCollectionIndexRangeAnd() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setTags(new ArrayList<>(Arrays.asList("a", "b")));
+        t1.setScores(new HashSet<>(Arrays.asList(80)));
+        s.persist(t1);
+
+        TestIndexed t2 = new TestIndexed("2");
+        t2.setTags(new ArrayList<>(Arrays.asList("a")));
+        t2.setScores(new HashSet<>(Arrays.asList(5)));
+        s.persist(t2);
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class,
+                Conditions.and(Conditions.eq("tags", "a"), Conditions.gt("scores", 10)));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
+    }
+
+    @Test
+    public void testCollectionIndexLtLe() {
+        RLiveObjectService s = redisson.getLiveObjectService();
+
+        TestIndexed t1 = new TestIndexed("1");
+        t1.setScores(new HashSet<>(Arrays.asList(5, 10)));
+        s.persist(t1);
+
+        TestIndexed t2 = new TestIndexed("2");
+        t2.setScores(new HashSet<>(Arrays.asList(50)));
+        s.persist(t2);
+
+        Collection<TestIndexed> result = s.find(TestIndexed.class, Conditions.lt("scores", 10));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
+
+        result = s.find(TestIndexed.class, Conditions.le("scores", 15));
+        assertThat(result).hasSize(1);
+        assertThat(result.iterator().next().getId()).isEqualTo("1");
     }
 
     @Test
@@ -1963,6 +2243,186 @@ public class RedissonLiveObjectServiceTest extends RedisDockerTest {
         } catch (Exception e) {
             assertTrue(e instanceof NoSuchFieldException);
         }
+    }
+
+    @REntity
+    public static class TestClassGetterSetter {
+
+        @RId(generator = UUIDGenerator.class)
+        private Serializable id;
+
+        private String value;
+
+        public Serializable getId() {
+            return id;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public void setValue(String value) {
+            this.value = value;
+        }
+
+        @RGetter
+        public <T> T readField(String field) {
+            return null;
+        }
+
+        @RSetter
+        public <T> void writeField(String field, T value) {
+        }
+    }
+
+    @Test
+    public void testFieldAccessorGetterSetter() {
+        RLiveObjectService service = redisson.getLiveObjectService();
+        TestClassGetterSetter myObject = new TestClassGetterSetter();
+        myObject = service.persist(myObject);
+
+        myObject.setValue("123345");
+        assertEquals("123345", myObject.readField("value"));
+        myObject.writeField("value", "9999");
+        assertEquals("9999", myObject.readField("value"));
+        assertEquals("9999", myObject.getValue());
+        try {
+            myObject.readField("555555");
+        } catch (Exception e) {
+            assertTrue(e instanceof NoSuchFieldException);
+        }
+        try {
+            myObject.writeField("555555", "999");
+        } catch (Exception e) {
+            assertTrue(e instanceof NoSuchFieldException);
+        }
+    }
+
+    @REntity
+    public static class TestClassConventionalAccessor {
+
+        @RId(generator = UUIDGenerator.class)
+        private Serializable id;
+
+        private String value;
+
+        public Serializable getId() {
+            return id;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public void setValue(String value) {
+            this.value = value;
+        }
+
+        @RGetter
+        public <T> T get(String field) {
+            return null;
+        }
+
+        @RSetter
+        public <T> void set(String field, T value) {
+        }
+    }
+
+    @Test
+    public void testGetterSetterAnnotationsOnConventionalNames() {
+        RLiveObjectService service = redisson.getLiveObjectService();
+        TestClassConventionalAccessor myObject = new TestClassConventionalAccessor();
+        myObject = service.persist(myObject);
+
+        myObject.setValue("123345");
+        assertEquals("123345", myObject.get("value"));
+        myObject.set("value", "9999");
+        assertEquals("9999", myObject.get("value"));
+        assertEquals("9999", myObject.getValue());
+        try {
+            myObject.get("555555");
+        } catch (Exception e) {
+            assertTrue(e instanceof NoSuchFieldException);
+        }
+        try {
+            myObject.set("555555", "999");
+        } catch (Exception e) {
+            assertTrue(e instanceof NoSuchFieldException);
+        }
+    }
+
+    @REntity
+    public static class TestClassReadOnlyAccessor {
+
+        @RId(generator = UUIDGenerator.class)
+        private Serializable id;
+
+        private String value;
+
+        public Serializable getId() {
+            return id;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public void setValue(String value) {
+            this.value = value;
+        }
+
+        // Only a getter accessor is declared - a setter is not required.
+        @RGetter
+        public <T> T read(String field) {
+            return null;
+        }
+    }
+
+    @Test
+    public void testReadOnlyGetterAccessor() {
+        RLiveObjectService service = redisson.getLiveObjectService();
+        TestClassReadOnlyAccessor myObject = new TestClassReadOnlyAccessor();
+        myObject = service.persist(myObject);
+
+        myObject.setValue("abc");
+        assertEquals("abc", myObject.read("value"));
+        myObject.setValue("xyz");
+        assertEquals("xyz", myObject.read("value"));
+        try {
+            myObject.read("555555");
+        } catch (Exception e) {
+            assertTrue(e instanceof NoSuchFieldException);
+        }
+    }
+
+    @Test
+    public void testFieldAccessorPersistenceIntegration() {
+        RLiveObjectService service = redisson.getLiveObjectService();
+        DefaultNamingScheme scheme = new DefaultNamingScheme(redisson.getConfig().getCodec());
+
+        TestClassGetterSetter object = new TestClassGetterSetter();
+        object = service.persist(object);
+        Serializable id = object.getId();
+
+        // Write a field value through the @RSetter accessor.
+        object.writeField("value", "persisted-value");
+
+        // The value is written through to the backing Redis hash.
+        assertEquals("persisted-value", service.asRMap(object).get("value"));
+        assertTrue(redisson.getMap(scheme.getName(TestClassGetterSetter.class, id)).isExists());
+        assertEquals("persisted-value",
+                redisson.getMap(scheme.getName(TestClassGetterSetter.class, id)).get("value"));
+
+        // Re-fetch a fresh live object by id and read it back via the @RGetter accessor.
+        TestClassGetterSetter reloaded = service.get(TestClassGetterSetter.class, id);
+        assertEquals("persisted-value", reloaded.readField("value"));
+        assertEquals("persisted-value", reloaded.getValue());
+
+        // Writing through the @RSetter accessor on the reloaded instance also persists.
+        reloaded.writeField("value", "updated-value");
+        assertEquals("updated-value",
+                redisson.getMap(scheme.getName(TestClassGetterSetter.class, id)).get("value"));
+        assertEquals("updated-value", object.readField("value"));
     }
 
     @Test

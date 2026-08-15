@@ -384,11 +384,11 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         if (config.getExpiryPolicy().getExpiryForAccess() == null) {
             return -1L;
         }
-        Long accessTimeout = config.getExpiryPolicy().getExpiryForAccess().getAdjustedTime(baseTime);
+        long accessTimeout = config.getExpiryPolicy().getExpiryForAccess().getAdjustedTime(baseTime);
 
         if (config.getExpiryPolicy().getExpiryForAccess().isZero()) {
             accessTimeout = 0L;
-        } else if (accessTimeout.longValue() == Long.MAX_VALUE) {
+        } else if (accessTimeout == Long.MAX_VALUE) {
             accessTimeout = -1L;
         }
         return accessTimeout;
@@ -823,10 +823,10 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
             return -1L;
         }
 
-        Long updateTimeout = config.getExpiryPolicy().getExpiryForUpdate().getAdjustedTime(baseTime);
+        long updateTimeout = config.getExpiryPolicy().getExpiryForUpdate().getAdjustedTime(baseTime);
         if (config.getExpiryPolicy().getExpiryForUpdate().isZero()) {
             updateTimeout = 0L;
-        } else if (updateTimeout.longValue() == Long.MAX_VALUE) {
+        } else if (updateTimeout == Long.MAX_VALUE) {
             updateTimeout = -1L;
         }
         return updateTimeout;
@@ -840,10 +840,10 @@ public class JCache<K, V> extends RedissonObject implements Cache<K, V>, CacheAs
         if (config.getExpiryPolicy().getExpiryForCreation() == null) {
             return -1L;
         }
-        Long creationTimeout = config.getExpiryPolicy().getExpiryForCreation().getAdjustedTime(baseTime);
+        long creationTimeout = config.getExpiryPolicy().getExpiryForCreation().getAdjustedTime(baseTime);
         if (config.getExpiryPolicy().getExpiryForCreation().isZero()) {
             creationTimeout = 0L;
-        } else if (creationTimeout.longValue() == Long.MAX_VALUE) {
+        } else if (creationTimeout == Long.MAX_VALUE) {
             creationTimeout = -1L;
         }
         return creationTimeout;

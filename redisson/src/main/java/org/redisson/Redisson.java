@@ -15,11 +15,11 @@
  */
 package org.redisson;
 
+import org.redisson.api.*;
 import org.redisson.api.ExecutorOptions;
 import org.redisson.api.LocalCachedMapOptions;
 import org.redisson.api.MapCacheOptions;
 import org.redisson.api.MapOptions;
-import org.redisson.api.*;
 import org.redisson.api.options.*;
 import org.redisson.api.redisnode.*;
 import org.redisson.client.codec.Codec;
@@ -43,6 +43,7 @@ import java.time.Duration;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
@@ -127,6 +128,22 @@ public final class Redisson implements RedissonClient {
     @Override
     public RedissonReactiveClient reactive() {
         return new RedissonReactive(connectionManager, evictionScheduler, writeBehindService);
+    }
+
+    @Override
+    public <V> RArray<V> getArray(String name) {
+        return new RedissonArray<>(commandExecutor, name);
+    }
+
+    @Override
+    public <V> RArray<V> getArray(String name, Codec codec) {
+        return new RedissonArray<>(codec, commandExecutor, name);
+    }
+
+    @Override
+    public <V> RArray<V> getArray(PlainOptions options) {
+        PlainParams params = (PlainParams) options;
+        return new RedissonArray<>(params.getCodec(), commandExecutor.copy(params), params.getName());
     }
 
     @Override
@@ -259,6 +276,22 @@ public final class Redisson implements RedissonClient {
     public RBuckets getBuckets(OptionalOptions options) {
         OptionalParams params = (OptionalParams) options;
         return new RedissonBuckets(params.getCodec(), commandExecutor.copy(params));
+    }
+
+    @Override
+    public <K, V> RMaps<K, V> getMaps() {
+        return new RedissonMaps<>(commandExecutor);
+    }
+
+    @Override
+    public <K, V> RMaps<K, V> getMaps(Codec codec) {
+        return new RedissonMaps<>(codec, commandExecutor);
+    }
+
+    @Override
+    public <K, V> RMaps<K, V> getMaps(OptionalOptions options) {
+        OptionalParams params = (OptionalParams) options;
+        return new RedissonMaps<>(params.getCodec(), commandExecutor.copy(params));
     }
 
     @Override
@@ -1037,6 +1070,22 @@ public final class Redisson implements RedissonClient {
     }
 
     @Override
+    public <V> RCircularBuffer<V> getCircularBuffer(String name) {
+        return new RedissonCircularBuffer<>(commandExecutor, name);
+    }
+
+    @Override
+    public <V> RCircularBuffer<V> getCircularBuffer(String name, Codec codec) {
+        return new RedissonCircularBuffer<>(codec, commandExecutor, name);
+    }
+
+    @Override
+    public <V> RCircularBuffer<V> getCircularBuffer(PlainOptions options) {
+        PlainParams params = (PlainParams) options;
+        return new RedissonCircularBuffer<>(params.getCodec(), commandExecutor.copy(params), params.getName());
+    }
+
+    @Override
     public <V> RBlockingQueue<V> getBlockingQueue(String name) {
         return new RedissonBlockingQueue<V>(commandExecutor, name, this);
     }
@@ -1183,6 +1232,21 @@ public final class Redisson implements RedissonClient {
     }
 
     @Override
+    public <K> RBitVectorStore<K> getBitVectorStore(String name) {
+        throw new UnsupportedOperationException("This feature is implemented in the Redisson PRO version. Please refer to https://redisson.pro/feature-comparison.html");
+    }
+
+    @Override
+    public <K> RBitVectorStore<K> getBitVectorStore(String name, Codec codec) {
+        throw new UnsupportedOperationException("This feature is implemented in the Redisson PRO version. Please refer to https://redisson.pro/feature-comparison.html");
+    }
+
+    @Override
+    public <K> RBitVectorStore<K> getBitVectorStore(PlainOptions options) {
+        throw new UnsupportedOperationException("This feature is implemented in the Redisson PRO version. Please refer to https://redisson.pro/feature-comparison.html");
+    }
+
+    @Override
     public RSemaphore getSemaphore(String name) {
         return new RedissonSemaphore(commandExecutor, name);
     }
@@ -1244,6 +1308,34 @@ public final class Redisson implements RedissonClient {
     public <V> RCuckooFilter<V> getCuckooFilter(PlainOptions options) {
         PlainParams params = (PlainParams) options;
         return new RedissonCuckooFilter<V>(params.getCodec(),
+                commandExecutor.copy(params), params.getName());
+    }
+
+    @Override
+    public RTDigest getTDigest(String name) {
+        return new RedissonTDigest(commandExecutor, name);
+    }
+
+    @Override
+    public RTDigest getTDigest(PlainOptions options) {
+        PlainParams params = (PlainParams) options;
+        return new RedissonTDigest(commandExecutor.copy(params), params.getName());
+    }
+
+    @Override
+    public <V> RTopK<V> getTopK(String name) {
+        return getTopK(name, null);
+    }
+
+    @Override
+    public <V> RTopK<V> getTopK(String name, Codec codec) {
+        return new RedissonTopK<V>(codec, commandExecutor, name);
+    }
+
+    @Override
+    public <V> RTopK<V> getTopK(PlainOptions options) {
+        PlainParams params = (PlainParams) options;
+        return new RedissonTopK<V>(params.getCodec(),
                 commandExecutor.copy(params), params.getName());
     }
 
@@ -1319,11 +1411,21 @@ public final class Redisson implements RedissonClient {
         connectionManager.shutdown();
     }
 
+    @Override
+    public CompletionStage<Void> shutdownAsync() {
+        return shutdownAsync(Duration.ZERO, Duration.ofSeconds(2));
+    }
 
     @Override
     public void shutdown(long quietPeriod, long timeout, TimeUnit unit) {
         writeBehindService.stop();
         connectionManager.shutdown(quietPeriod, timeout, unit);
+    }
+
+    @Override
+    public CompletionStage<Void> shutdownAsync(Duration quietPeriod, Duration timeout) {
+        writeBehindService.stop();
+        return connectionManager.shutdownAsync(quietPeriod.toNanos(), timeout.toNanos(), TimeUnit.NANOSECONDS);
     }
 
     @Override

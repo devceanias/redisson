@@ -19,6 +19,7 @@ import org.joor.Reflect;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.*;
+import org.redisson.api.options.PlainOptions;
 import org.redisson.api.redisnode.*;
 import org.redisson.api.stream.StreamCreateGroupArgs;
 import org.redisson.client.*;
@@ -26,11 +27,13 @@ import org.redisson.client.codec.BaseCodec;
 import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.Decoder;
 import org.redisson.client.protocol.Encoder;
+import org.redisson.client.protocol.RedisCommand;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.codec.JsonJacksonCodec;
 import org.redisson.codec.SerializationCodec;
 import org.redisson.config.*;
 import org.redisson.connection.*;
+import org.redisson.connection.balancer.RoundRobinLoadBalancer;
 import org.redisson.connection.pool.SlaveConnectionPool;
 import org.redisson.misc.RedisURI;
 import org.testcontainers.containers.ContainerState;
@@ -46,6 +49,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -617,6 +621,14 @@ public class RedissonTest extends RedisDockerTest {
     }
 
     @Test
+    public void testShutdownAsync() {
+        RedissonClient r = createInstance();
+        r.shutdownAsync().toCompletableFuture().join();
+        Assertions.assertTrue(r.isShuttingDown());
+        Assertions.assertTrue(r.isShutdown());
+    }
+
+    @Test
     public void testCredentials() {
         GenericContainer<?> redis = createContainer("--requirepass", "1234");
         redis.start();
@@ -947,7 +959,7 @@ public class RedissonTest extends RedisDockerTest {
             String key = null;
             int slot = 0;
             String res = execute(source, "redis-cli", "cluster", "slots");
-            int sourceSlot = Integer.valueOf(res.split("\\n")[1]);
+            int sourceSlot = Integer.parseInt(res.split("\\n")[1]);
             for (int i = 0; i < 100000; i++) {
                 key = "" + i;
                 slot = CRC16.crc16(key.getBytes()) % MasterSlaveConnectionManager.MAX_SLOT;
@@ -1011,7 +1023,7 @@ public class RedissonTest extends RedisDockerTest {
 
     @Test
     public void testClusterConnectionFail() {
-            Awaitility.await().atLeast(Duration.ofSeconds(3)).atMost(Duration.ofSeconds(7)).untilAsserted(() -> {
+            Awaitility.await().atLeast(Duration.ofSeconds(2)).atMost(Duration.ofSeconds(7)).untilAsserted(() -> {
             Assertions.assertThrows(RedisConnectionException.class, () -> {
                 Config config = new Config();
                 config.useClusterServers()
@@ -1334,6 +1346,104 @@ public class RedissonTest extends RedisDockerTest {
 
         cc.shutdown();
         s.stop();
+    }
+
+    @Test
+    public void testPerObjectReadModeOverride() {
+        withNewReplicated((nodes, redisson) -> {
+            AtomicReference<ClientConnectionsEntry> lastSlavePoolPick = new AtomicReference<>();
+
+            Config config = redisson.getConfig();
+            config.useReplicatedServers()
+                    .setReadMode(ReadMode.SLAVE)
+                    .setLoadBalancer(new RoundRobinLoadBalancer() {
+                        @Override
+                        public ClientConnectionsEntry getEntry(List<ClientConnectionsEntry> clientsCopy, RedisCommand<?> redisCommand) {
+                            ClientConnectionsEntry entry = super.getEntry(clientsCopy, redisCommand);
+                            lastSlavePoolPick.set(entry);
+                            return entry;
+                        }
+                    });
+            RedissonClient observeClient = Redisson.create(config);
+
+            // Default bucket: no override -> global readMode (SLAVE) applies.
+            // The slave pool's load balancer is consulted, and a SLAVE entry is picked.
+            RBucket<String> defaultBucket = observeClient.getBucket("readmode-default");
+            defaultBucket.set("v1");
+            lastSlavePoolPick.set(null);
+            defaultBucket.get();
+            assertThat(lastSlavePoolPick.get())
+                    .as("default-readMode read must traverse the slave pool")
+                    .isNotNull();
+            assertThat(lastSlavePoolPick.get().getNodeType())
+                    .as("default-readMode read must land on a slave")
+                    .isEqualTo(NodeType.SLAVE);
+
+            // Override bucket: readMode=MASTER routes through connectionWriteOp,
+            // bypassing the slave pool entirely. The load balancer is never consulted.
+            RBucket<String> masterReadBucket = observeClient.getBucket(
+                    PlainOptions.name("readmode-master").readMode(ReadMode.MASTER));
+            masterReadBucket.set("v2");
+            lastSlavePoolPick.set(null);
+            masterReadBucket.get();
+            assertThat(lastSlavePoolPick.get())
+                    .as("per-object readMode=MASTER must bypass the slave pool")
+                    .isNull();
+
+            // Default bucket once more: confirms the override is per-object, not sticky.
+            lastSlavePoolPick.set(null);
+            defaultBucket.get();
+            assertThat(lastSlavePoolPick.get())
+                    .as("subsequent default read must still traverse the slave pool")
+                    .isNotNull();
+            assertThat(lastSlavePoolPick.get().getNodeType()).isEqualTo(NodeType.SLAVE);
+
+            observeClient.shutdown();
+        });
+    }
+
+    @Test
+    public void testPerObjectReadModeOverrideOnMap() {
+        withNewReplicated((nodes, redisson) -> {
+            AtomicReference<ClientConnectionsEntry> lastSlavePoolPick = new AtomicReference<>();
+
+            Config config = redisson.getConfig();
+            config.useReplicatedServers()
+                    .setReadMode(ReadMode.SLAVE)
+                    .setLoadBalancer(new RoundRobinLoadBalancer() {
+                        @Override
+                        public ClientConnectionsEntry getEntry(List<ClientConnectionsEntry> clientsCopy, RedisCommand<?> redisCommand) {
+                            ClientConnectionsEntry entry = super.getEntry(clientsCopy, redisCommand);
+                            lastSlavePoolPick.set(entry);
+                            return entry;
+                        }
+                    });
+            RedissonClient observeClient = Redisson.create(config);
+
+            // Default map: no override -> reads traverse the slave pool.
+            RMap<String, String> defaultMap = observeClient.getMap("readmode-map-default");
+            defaultMap.put("k", "v");
+            lastSlavePoolPick.set(null);
+            defaultMap.get("k");
+            assertThat(lastSlavePoolPick.get())
+                    .as("default-readMode RMap read must traverse the slave pool")
+                    .isNotNull();
+            assertThat(lastSlavePoolPick.get().getNodeType()).isEqualTo(NodeType.SLAVE);
+
+            // Override map: readMode=MASTER bypasses the slave pool. This proves the
+            // override propagates through ExMapOptions/MapOptions, not just PlainOptions.
+            RMap<String, String> masterReadMap = observeClient.getMap(
+                    org.redisson.api.options.MapOptions.<String, String>name("readmode-map-master")
+                            .readMode(ReadMode.MASTER));
+            masterReadMap.put("k", "v");
+            lastSlavePoolPick.set(null);
+            masterReadMap.get("k");
+            assertThat(lastSlavePoolPick.get())
+                    .as("per-object readMode=MASTER on RMap must bypass the slave pool")
+                    .isNull();
+
+            observeClient.shutdown();
+        });
     }
 
 }

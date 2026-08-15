@@ -34,6 +34,7 @@ import org.redisson.client.protocol.RedisCommand;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.config.DefaultCommandMapper;
 import org.redisson.config.DelayStrategy;
+import org.redisson.config.ReadMode;
 import org.redisson.connection.ConnectionManager;
 import org.redisson.connection.MasterSlaveEntry;
 import org.redisson.connection.NodeSource;
@@ -76,6 +77,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
     private final DelayStrategy retryDelay;
     private final int responseTimeout;
     private final boolean trackChanges;
+    private final ReadMode readMode;
 
     @Override
     public CommandAsyncExecutor copy(boolean trackChanges) {
@@ -92,6 +94,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         this.retryDelay = service.retryDelay;
         this.responseTimeout = service.responseTimeout;
         this.trackChanges = trackChanges;
+        this.readMode = service.readMode;
     }
 
     @Override
@@ -123,6 +126,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
             this.responseTimeout = connectionManager.getServiceManager().getConfig().getTimeout();
         }
         this.trackChanges = false;
+        this.readMode = objectParams.getReadMode();
     }
 
     protected CommandAsyncService(ConnectionManager connectionManager, RedissonObjectBuilder objectBuilder,
@@ -135,11 +139,17 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         this.retryDelay = connectionManager.getServiceManager().getConfig().getRetryDelay();
         this.responseTimeout = connectionManager.getServiceManager().getConfig().getTimeout();
         this.trackChanges = false;
+        this.readMode = null;
     }
 
     @Override
     public ConnectionManager getConnectionManager() {
         return connectionManager;
+    }
+
+    @Override
+    public ReadMode getReadMode() {
+        return readMode;
     }
 
     private boolean isRedissonReferenceSupportEnabled() {
@@ -268,7 +278,19 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         retryReadRandomAsync(codec, command, mainPromise, list, params);
         return new CompletableFutureWrapper<>(mainPromise);
     }
-    
+
+    @Override
+    public <T, R> RFuture<R> readRoundRobinAsync(Codec codec, RedisCommand<T> command, Object... params) {
+        MasterSlaveEntry entry = connectionManager.getNextEntry();
+        return async(true, new NodeSource(entry), codec, command, params, false, false);
+    }
+
+    @Override
+    public <T, R> RFuture<R> writeRoundRobinAsync(Codec codec, RedisCommand<T> command, Object... params) {
+        MasterSlaveEntry entry = connectionManager.getNextEntry();
+        return async(false, new NodeSource(entry), codec, command, params, false, false);
+    }
+
     private <R, T> void retryReadRandomAsync(Codec codec, RedisCommand<T> command, CompletableFuture<R> mainPromise,
             List<RedisClient> nodes, Object... params) {
         RedisClient client = nodes.remove(0);
@@ -581,7 +603,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
             RedisExecutor<T, R> executor = new RedisExecutor(readOnlyMode, nodeSource, codec, cmd,
                     args.toArray(), promise, false,
                     connectionManager, objectBuilder, referenceType, noRetry,
-                    retryAttempts, retryDelay, responseTimeout, trackChanges);
+                    retryAttempts, retryDelay, responseTimeout, trackChanges, readMode);
             executor.execute();
 
             promise.whenComplete((res, e) -> {
@@ -676,7 +698,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
             CompletableFuture<R> mainPromise = createPromise();
             RedisExecutor<V, R> executor = new RedisExecutor<>(readOnlyMode, source, codec, cmd, params, mainPromise,
                                                                 ignoreRedirect, connectionManager, objectBuilder, referenceType, noRetry,
-                                                                retryAttempts, retryDelay, responseTimeout, trackChanges);
+                                                                retryAttempts, retryDelay, responseTimeout, trackChanges, readMode);
             executor.execute();
             CompletableFuture<R> result = new CompletableFuture<>();
             mainPromise.whenComplete((r, e) -> {
@@ -705,7 +727,7 @@ public class CommandAsyncService implements CommandAsyncExecutor {
         }
         RedisExecutor<V, R> executor = new RedisExecutor<>(readOnlyMode, source, codec, cmnd, params, mainPromise,
                                                             ignoreRedirect, connectionManager, objectBuilder, referenceType, noRetry,
-                                                            retryAttempts, retryDelay, responseTimeout, trackChanges);
+                                                            retryAttempts, retryDelay, responseTimeout, trackChanges, readMode);
         executor.execute();
         return new CompletableFutureWrapper<>(mainPromise);
     }

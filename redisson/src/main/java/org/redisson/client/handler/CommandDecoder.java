@@ -383,14 +383,14 @@ public class CommandDecoder extends ReplayingDecoder<State> {
                 }
             } else if (error.startsWith("MOVED")) {
                 String[] errorParts = error.split(" ");
-                int slot = Integer.valueOf(errorParts[1]);
+                int slot = Integer.parseInt(errorParts[1]);
                 String addr = errorParts[2];
                 if (data != null) {
                     data.tryFailure(new RedisMovedException(slot, new RedisURI(scheme + "://" + addr)));
                 }
             } else if (error.startsWith("ASK")) {
                 String[] errorParts = error.split(" ");
-                int slot = Integer.valueOf(errorParts[1]);
+                int slot = Integer.parseInt(errorParts[1]);
                 String addr = errorParts[2];
                 if (data != null) {
                     data.tryFailure(new RedisAskException(slot, new RedisURI(scheme + "://" + addr)));

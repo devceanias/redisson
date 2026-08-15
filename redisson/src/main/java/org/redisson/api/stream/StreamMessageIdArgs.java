@@ -20,13 +20,13 @@ package org.redisson.api.stream;
  * @author seakider
  *
  */
-public interface StreamMessageIdArgs {
+public interface StreamMessageIdArgs<T> {
 
     /**
-     * Defines id of messages to acknowledges and conditionally deletes
+     * Defines id of messages
      *
-     * @param ids id of messages to acknowledges and conditionally deletes
+     * @param ids id of messages
      * @return arguments object
      */
-    StreamAckArgs ids(StreamMessageId... ids);
+    T ids(StreamMessageId... ids);
 }

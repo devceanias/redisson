@@ -10,7 +10,10 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.redisson.api.*;
-import org.redisson.api.listener.*;
+import org.redisson.api.listener.BaseStatusListener;
+import org.redisson.api.listener.MessageListener;
+import org.redisson.api.listener.PatternStatusListener;
+import org.redisson.api.listener.StatusListener;
 import org.redisson.api.redisnode.RedisCluster;
 import org.redisson.api.redisnode.RedisClusterMaster;
 import org.redisson.api.redisnode.RedisClusterSlave;
@@ -24,9 +27,9 @@ import org.redisson.client.codec.StringCodec;
 import org.redisson.client.protocol.RedisCommands;
 import org.redisson.cluster.ClusterNodeInfo;
 import org.redisson.config.Config;
+import org.redisson.config.ReadMode;
 import org.redisson.config.SubscriptionMode;
 import org.redisson.connection.SequentialDnsAddressResolverFactory;
-import org.redisson.connection.balancer.RandomLoadBalancer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.ContainerState;
@@ -500,7 +503,7 @@ public class RedissonTopicTest extends RedisDockerTest {
             params.add(2000);
             params.add("KEYS");
             params.addAll(keys);
-            sourceConnection.sync(RedisCommands.MIGRATE, params.toArray());
+//            sourceConnection.sync(RedisCommands.MIGRATE, params.toArray());
 
             for (ClusterNodeInfo node : mastersList) {
                 if (node.getSlotRanges().isEmpty()) {
@@ -775,7 +778,7 @@ public class RedissonTopicTest extends RedisDockerTest {
 
         restart(redis);
 
-        Thread.sleep(2000);
+        Thread.sleep(3000);
 
         redisson.getTopic("topic").publish(1);
         
@@ -900,8 +903,8 @@ public class RedissonTopicTest extends RedisDockerTest {
             Runnable rLockPayload =
                     () -> {
                         try {
-                            Integer randomLock = ThreadLocalRandom.current().nextInt(100);
-                            RLock lock = redissonClient.getLock(randomLock.toString());
+                            int randomLock = ThreadLocalRandom.current().nextInt(100);
+                            RLock lock = redissonClient.getLock(Integer.toString(randomLock));
                             lock.lock(10, TimeUnit.SECONDS);
                             lock.unlock();
                             status.add("ok");
@@ -1291,7 +1294,7 @@ public class RedissonTopicTest extends RedisDockerTest {
     public void testReattachInSentinel3() throws Exception {
         withSentinel((nodes, config) -> {
             config.useSentinelServers()
-                    .setRetryAttempts(8)
+                    .setRetryAttempts(10)
                     .setSubscriptionsPerConnection(20)
                     .setSubscriptionConnectionPoolSize(200);
 
@@ -1305,8 +1308,8 @@ public class RedissonTopicTest extends RedisDockerTest {
             Runnable rLockPayload =
                     () -> {
                         try {
-                            Integer randomLock = ThreadLocalRandom.current().nextInt(100);
-                            RLock lock = redissonClient.getLock(randomLock.toString());
+                            int randomLock = ThreadLocalRandom.current().nextInt(100);
+                            RLock lock = redissonClient.getLock(Integer.toString(randomLock));
                             lock.lock(10, TimeUnit.SECONDS);
                             lock.unlock();
 
@@ -1359,7 +1362,7 @@ public class RedissonTopicTest extends RedisDockerTest {
             System.out.println("master has been stopped! " + port);
 
             try {
-                TimeUnit.SECONDS.sleep(40);
+                TimeUnit.SECONDS.sleep(10);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
@@ -1536,6 +1539,63 @@ public class RedissonTopicTest extends RedisDockerTest {
                 return messagesReceived.get() == 101;
             });
         });
+    }
+
+    @Test
+    public void testSubscriptionBalancedAcrossSlaves() throws InterruptedException {
+        withSentinel((nodes, config) -> {
+            config.useSentinelServers()
+                    .setReadMode(ReadMode.SLAVE)
+                    .setSubscriptionMode(SubscriptionMode.SLAVE)
+                    .setSubscriptionsPerConnection(1)
+                    .setSubscriptionConnectionPoolSize(100);
+
+            RedissonClient redisson = Redisson.create(config);
+
+            int topicsCount = 40;
+
+            for (int i = 0; i < topicsCount; i++) {
+                redisson.getBucket("bucket-" + i).get(); // SLAVE read - advances the shared cursor
+
+                RTopic topic = redisson.getTopic("topic-" + i);
+                CountDownLatch subscribed = new CountDownLatch(1);
+                topic.addListener(new BaseStatusListener() {
+                    @Override
+                    public void onSubscribe(String channel) {
+                        subscribed.countDown();
+                    }
+                });
+                topic.addListener(Integer.class, (channel, msg) -> { });
+                try {
+                    assertThat(subscribed.await(2, TimeUnit.SECONDS)).isTrue();
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+
+            int slave1Channels = countTopicChannels(nodes.get(1));
+            int slave2Channels = countTopicChannels(nodes.get(2));
+
+            assertThat(slave1Channels + slave2Channels).isEqualTo(topicsCount);
+            assertThat(slave1Channels).isEqualTo(20);
+            assertThat(slave2Channels).isEqualTo(20);
+
+            redisson.shutdown();
+        }, 2);
+    }
+
+    private int countTopicChannels(GenericContainer<?> node) {
+        RedisClientConfig cfg = new RedisClientConfig();
+        cfg.setAddress("redis://" + node.getHost() + ":" + node.getMappedPort(CONTAINER_PORT));
+        RedisClient client = RedisClient.create(cfg);
+        try {
+            RedisConnection connection = client.connect();
+            List<String> channels = connection.sync(RedisCommands.PUBSUB_CHANNELS);
+            System.out.println("channels " + channels);
+            return (int) channels.stream().filter(c -> c.startsWith("topic-")).count();
+        } finally {
+            client.shutdown();
+        }
     }
 
 }

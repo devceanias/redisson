@@ -1,0 +1,71 @@
+/**
+ * Copyright (c) 2013-2026 Nikita Koksharov
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.redisson.api.atomic;
+
+import java.time.Duration;
+import java.time.Instant;
+
+/**
+ * Base arguments for extended atomic increment operations.
+ *
+ * @author lamnt2008
+ *
+ * @param <T> arguments type
+ */
+public interface BaseIncrementArgs<T> {
+
+    /**
+     * Caps the increment result at the lower or upper bound (or the type
+     * limits when no explicit bound is given) instead of rejecting it.
+     * <p>
+     * Without this option, an out-of-bounds result leaves the value and its
+     * expiration unchanged, and the current value is returned.
+     *
+     * @return arguments object
+     */
+    T saturate();
+
+    /**
+     * Defines the specified expiration time.
+     *
+     * @param ttl time to live duration
+     * @return arguments object
+     */
+    T timeToLive(Duration ttl);
+
+    /**
+     * Defines the specified Unix time at which the key will expire.
+     *
+     * @param time expire date
+     * @return arguments object
+     */
+    T expireAt(Instant time);
+
+    /**
+     * Defines removal of the existing expiration.
+     *
+     * @return arguments object
+     */
+    T persist();
+
+    /**
+     * Defines expiration setting only if the key doesn't have an expiration.
+     *
+     * @return arguments object
+     */
+    T expireIfNotSet();
+
+}

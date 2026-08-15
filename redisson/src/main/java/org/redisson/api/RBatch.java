@@ -33,6 +33,30 @@ import org.redisson.codec.JsonCodec;
 public interface RBatch {
 
     /**
+     * Returns Array instance by <code>name</code>.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @return RArray object
+     */
+    <V> RArrayAsync<V> getArray(String name);
+
+    /**
+     * Returns Array instance by <code>name</code>
+     * using provided <code>codec</code> for values.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @param codec codec for values
+     * @return RArray object
+     */
+    <V> RArrayAsync<V> getArray(String name, Codec codec);
+
+    /**
      * Returns bloom filter native instance by <code>name</code>.
      * Covers BF.* commands.
      *
@@ -73,6 +97,42 @@ public interface RBatch {
      * @return CuckooFilter object
      */
     <V> RCuckooFilterAsync<V> getCuckooFilter(String name, Codec codec);
+
+    /**
+     * Returns Top-K sketch instance by <code>name</code>.
+     *
+     * @param <V> type of value
+     * @param name name of object
+     * @return TopK object
+     */
+    <V> RTopKAsync<V> getTopK(String name);
+
+    /**
+     * Returns Top-K sketch instance by <code>name</code>
+     * using provided <code>codec</code> for values.
+     *
+     * @param <V> type of value
+     * @param name name of object
+     * @param codec codec for values
+     * @return TopK object
+     */
+    <V> RTopKAsync<V> getTopK(String name, Codec codec);
+
+    /**
+     * Returns t-digest instance by <code>name</code>.
+     *
+     * @param name name of object
+     * @return TDigest object
+     */
+    RTDigestAsync getTDigest(String name);
+
+    /**
+     * Returns vector set instance by name.
+     * Stores vectors and associated elements in a set optimized for similarity search.
+     *
+     * @return RVectorSet object
+     */
+    RVectorSetAsync getVectorSet(String name);
 
     /**
      * Returns stream instance by <code>name</code>

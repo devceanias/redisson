@@ -19,6 +19,7 @@ import org.redisson.client.RedisClient;
 import org.redisson.client.RedisConnection;
 import org.redisson.client.protocol.RedisCommand;
 import org.redisson.config.MasterSlaveServersConfig;
+import org.redisson.config.ReadMode;
 import org.redisson.misc.RedisURI;
 
 import java.util.Collection;
@@ -50,7 +51,17 @@ public class SingleEntry extends MasterSlaveEntry {
     }
 
     @Override
+    public CompletableFuture<RedisConnection> connectionReadOp(RedisCommand<?> command, boolean trackChanges, ReadMode override) {
+        return connectionReadOp(command, trackChanges);
+    }
+
+    @Override
     public void releaseRead(RedisConnection connection) {
+        super.releaseWrite(connection);
+    }
+
+    @Override
+    public void releaseRead(RedisConnection connection, ReadMode override) {
         super.releaseWrite(connection);
     }
 

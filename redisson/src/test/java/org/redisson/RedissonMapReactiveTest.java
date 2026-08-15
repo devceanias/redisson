@@ -128,12 +128,12 @@ public class RedissonMapReactiveTest extends BaseReactiveTest {
     public void testIteratorSequence() throws InterruptedException {
         RMapReactive<Long, Long> map = redisson.getMap("map");
         for (int i = 0; i < 1000; i++) {
-            sync(map.put(Long.valueOf(i), Long.valueOf(i)));
+            sync(map.put((long) i, (long) i));
         }
 
         Map<Long, Long> setCopy = new HashMap<>();
         for (int i = 0; i < 1000; i++) {
-            setCopy.put(Long.valueOf(i), Long.valueOf(i));
+            setCopy.put((long) i, (long) i);
         }
 
         checkIterator(map, setCopy);
@@ -161,9 +161,9 @@ public class RedissonMapReactiveTest extends BaseReactiveTest {
         Assertions.assertEquals(112, (int)res);
 
         RMapReactive<Integer, Double> map2 = redisson.getMap("getAll2", new CompositeCodec(redisson.getConfig().getCodec(), DoubleCodec.INSTANCE));
-        sync(map2.put(1, new Double(100.2)));
+        sync(map2.put(1, 100.2));
 
-        Double res2 = sync(map2.addAndGet(1, new Double(12.1)));
+        Double res2 = sync(map2.addAndGet(1, 12.1));
         Assertions.assertTrue(new Double(112.3).compareTo(res2) == 0);
         res2 = sync(map2.get(1));
         Assertions.assertTrue(new Double(112.3).compareTo(res2) == 0);

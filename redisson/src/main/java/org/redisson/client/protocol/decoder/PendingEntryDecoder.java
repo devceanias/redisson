@@ -36,7 +36,7 @@ public class PendingEntryDecoder implements MultiDecoder<Object> {
             return parts;
         }
         return new PendingEntry(convertor.convert(parts.get(0)), parts.get(1).toString(), 
-                Long.valueOf(parts.get(2).toString()), Long.valueOf(parts.get(3).toString()));
+                Long.parseLong(parts.get(2).toString()), Long.parseLong(parts.get(3).toString()));
     }
 
 }

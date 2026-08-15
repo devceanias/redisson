@@ -36,6 +36,41 @@ import java.util.Collection;
 public interface RedissonRxClient {
 
     /**
+     * Returns Array instance by <code>name</code>
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @return RArrayRx object
+     */
+    <V> RArrayRx<V> getArray(String name);
+
+    /**
+     * Returns Array instance by <code>name</code>
+     * using provided <code>codec</code> for values.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @param codec codec for values
+     * @return RArrayRx object
+     */
+    <V> RArrayRx<V> getArray(String name, Codec codec);
+
+    /**
+     * Returns Array instance with specified <code>options</code>.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param options instance options
+     * @return RArrayRx object
+     */
+    <V> RArrayRx<V> getArray(PlainOptions options);
+
+    /**
      * Returns time-series instance by <code>name</code>
      *
      * @param <V> value type
@@ -656,6 +691,30 @@ public interface RedissonRxClient {
      * @return Buckets object
      */
     RBucketsRx getBuckets(OptionalOptions options);
+
+    /**
+     * Returns interface for mass operations with Map objects.
+     *
+     * @return Maps object
+     */
+    <K, V> RMapsRx<K, V> getMaps();
+
+    /**
+     * Returns interface for mass operations with Map objects
+     * using provided codec for keys and values.
+     *
+     * @param codec codec for keys and values
+     * @return Maps object
+     */
+    <K, V> RMapsRx<K, V> getMaps(Codec codec);
+
+    /**
+     * Returns API for mass operations over Map objects with specified <code>options</code>.
+     *
+     * @param options instance options
+     * @return Maps object
+     */
+    <K, V> RMapsRx<K, V> getMaps(OptionalOptions options);
 
     /**
      * Returns JSON data holder instance by name using provided codec.
@@ -1440,6 +1499,41 @@ public interface RedissonRxClient {
     <V> RRingBufferRx<V> getRingBuffer(PlainOptions options);
 
     /**
+     * Returns circular (ring) buffer instance by <code>name</code>.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @return CircularBuffer object
+     */
+    <V> RCircularBufferRx<V> getCircularBuffer(String name);
+
+    /**
+     * Returns circular (ring) buffer instance by <code>name</code>
+     * using provided <code>codec</code> for values.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param name name of instance
+     * @param codec codec for values
+     * @return CircularBuffer object
+     */
+    <V> RCircularBufferRx<V> getCircularBuffer(String name, Codec codec);
+
+    /**
+     * Returns circular (ring) buffer instance with specified <code>options</code>.
+     * <p>
+     * Requires <b>Redis 8.8 or higher.</b>
+     *
+     * @param <V> value type
+     * @param options instance options
+     * @return CircularBuffer object
+     */
+    <V> RCircularBufferRx<V> getCircularBuffer(PlainOptions options);
+
+    /**
      * Returns blocking queue instance by name.
      * 
      * @param <V> type of values
@@ -1736,6 +1830,51 @@ public interface RedissonRxClient {
      * @return CuckooFilter object
      */
     <V> RCuckooFilterRx<V> getCuckooFilter(PlainOptions options);
+
+    /**
+     * Returns Top-K sketch instance by <code>name</code>.
+     *
+     * @param <V> type of value
+     * @param name name of object
+     * @return TopK object
+     */
+    <V> RTopKRx<V> getTopK(String name);
+
+    /**
+     * Returns Top-K sketch instance by <code>name</code>
+     * using provided <code>codec</code> for values.
+     *
+     * @param <V> type of value
+     * @param name name of object
+     * @param codec codec for values
+     * @return TopK object
+     */
+    <V> RTopKRx<V> getTopK(String name, Codec codec);
+
+    /**
+     * Returns Top-K sketch instance with specified <code>options</code>.
+     *
+     * @param <V> type of value
+     * @param options instance options
+     * @return TopK object
+     */
+    <V> RTopKRx<V> getTopK(PlainOptions options);
+
+    /**
+     * Returns t-digest instance by <code>name</code>.
+     *
+     * @param name name of object
+     * @return TDigest object
+     */
+    RTDigestRx getTDigest(String name);
+
+    /**
+     * Returns t-digest instance with specified <code>options</code>.
+     *
+     * @param options instance options
+     * @return TDigest object
+     */
+    RTDigestRx getTDigest(PlainOptions options);
 
     /**
      * Returns interface for Redis Function feature

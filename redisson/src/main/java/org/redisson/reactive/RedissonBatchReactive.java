@@ -41,13 +41,25 @@ public class RedissonBatchReactive implements RBatchReactive {
     }
 
     @Override
+    public <V> RArrayReactive<V> getArray(String name) {
+        return ReactiveProxyBuilder.create(executorService, new RedissonArray<V>(executorService, name), RArrayReactive.class);
+    }
+
+    @Override
+    public <V> RArrayReactive<V> getArray(String name, Codec codec) {
+        return ReactiveProxyBuilder.create(executorService, new RedissonArray<V>(codec, executorService, name), RArrayReactive.class);
+    }
+
+    @Override
     public <K, V> RStreamReactive<K, V> getStream(String name) {
-        return ReactiveProxyBuilder.create(executorService, new RedissonStream<K, V>(executorService, name), RStreamReactive.class);
+        RedissonStream<K, V> stream = new RedissonStream<K, V>(executorService, name);
+        return ReactiveProxyBuilder.create(executorService, stream, RStreamReactive.class);
     }
 
     @Override
     public <K, V> RStreamReactive<K, V> getStream(String name, Codec codec) {
-        return ReactiveProxyBuilder.create(executorService, new RedissonStream<K, V>(codec, executorService, name), RStreamReactive.class);
+        RedissonStream<K, V> stream = new RedissonStream<K, V>(codec, executorService, name);
+        return ReactiveProxyBuilder.create(executorService, stream, RStreamReactive.class);
     }
     
     @Override
@@ -419,6 +431,32 @@ public class RedissonBatchReactive implements RBatchReactive {
         return ReactiveProxyBuilder.create(executorService,
                 new RedissonCuckooFilter<V>(codec, executorService, name),
                 RCuckooFilterReactive.class);
+    }
+
+    @Override
+    public RTDigestReactive getTDigest(String name) {
+        return ReactiveProxyBuilder.create(executorService,
+                new RedissonTDigest(executorService, name),
+                RTDigestReactive.class);
+    }
+
+    @Override
+    public <V> RTopKReactive<V> getTopK(String name) {
+        return getTopK(name, null);
+    }
+
+    @Override
+    public <V> RTopKReactive<V> getTopK(String name, Codec codec) {
+        return ReactiveProxyBuilder.create(executorService,
+                new RedissonTopK<V>(codec, executorService, name),
+                RTopKReactive.class);
+    }
+
+    @Override
+    public RVectorSetReactive getVectorSet(String name) {
+        return ReactiveProxyBuilder.create(executorService,
+                new RedissonVectorSet(executorService, name),
+                RVectorSetReactive.class);
     }
 
 }

@@ -38,10 +38,13 @@ import org.redisson.client.protocol.convertor.EmptyMapConvertor;
 import org.redisson.client.protocol.decoder.*;
 import org.redisson.codec.CompositeCodec;
 import org.redisson.command.CommandAsyncExecutor;
+import org.redisson.connection.MasterSlaveEntry;
 import org.redisson.iterator.RedissonBaseIterator;
+import org.redisson.misc.CompletableFutureWrapper;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.concurrent.CompletionStage;
 
 /**
  *
@@ -61,6 +64,14 @@ public class RedissonSearch implements RSearch {
     public RedissonSearch(Codec codec, CommandAsyncExecutor commandExecutor) {
         this.codec = commandExecutor.getServiceManager().getCodec(codec);
         this.commandExecutor = commandExecutor;
+    }
+
+    private boolean isClusterMode() {
+        return commandExecutor.getServiceManager().getCfg().isClusterConfig();
+    }
+
+    private Map<Long, MasterSlaveEntry> cursorRoutes() {
+        return commandExecutor.getServiceManager().getSearchCursorRoutes();
     }
 
     @Override
@@ -445,7 +456,7 @@ public class RedissonSearch implements RSearch {
                                             new ObjectListReplayDecoder()));
         }
 
-        return commandExecutor.readAsync(indexName, StringCodec.INSTANCE, command, args.toArray());
+        return commandExecutor.readRoundRobinAsync(StringCodec.INSTANCE, command, args.toArray());
     }
 
     @SuppressWarnings("MethodLength")
@@ -824,7 +835,20 @@ public class RedissonSearch implements RSearch {
             }
         }
 
-        return commandExecutor.writeAsync(indexName, StringCodec.INSTANCE, command, args.toArray());
+        if (options.isWithCursor() && isClusterMode()) {
+            MasterSlaveEntry entry = commandExecutor.getConnectionManager().getNextEntry();
+            RFuture<AggregationResult> future =
+                    commandExecutor.writeAsync(entry, StringCodec.INSTANCE, command, args.toArray());
+            CompletionStage<AggregationResult> result = future.thenApply(r -> {
+                if (r != null && r.getCursorId() > 0) {
+                    cursorRoutes().put(r.getCursorId(), entry);
+                }
+                return r;
+            });
+            return new CompletableFutureWrapper<>(result);
+        }
+
+        return commandExecutor.writeRoundRobinAsync(StringCodec.INSTANCE, command, args.toArray());
     }
 
     @Override
@@ -840,7 +864,7 @@ public class RedissonSearch implements RSearch {
         RedisStrictCommand<SearchProfileResult> command = new RedisStrictCommand<>("FT.PROFILE",
                 new UnboundedListMultiDecoder(new SearchProfileResultDecoder()));
 
-        return commandExecutor.readAsync(indexName, StringCodec.INSTANCE, command, args.toArray());
+        return commandExecutor.readRoundRobinAsync(StringCodec.INSTANCE, command, args.toArray());
     }
 
     @Override
@@ -856,7 +880,7 @@ public class RedissonSearch implements RSearch {
         RedisStrictCommand<AggregateProfileResult> command = new RedisStrictCommand<>("FT.PROFILE",
                 new UnboundedListMultiDecoder(new AggregateProfileResultDecoder()));
 
-        return commandExecutor.readAsync(indexName, StringCodec.INSTANCE, command, args.toArray());
+        return commandExecutor.readRoundRobinAsync(StringCodec.INSTANCE, command, args.toArray());
     }
 
     private static List<Object> buildProfileArgs(String indexName, String queryType, boolean limited, List<Object> innerArgs) {
@@ -903,6 +927,16 @@ public class RedissonSearch implements RSearch {
     @Override
     public RFuture<Void> updateAliasAsync(String alias, String indexName) {
         return commandExecutor.writeAsync(alias, StringCodec.INSTANCE, RedisCommands.FT_ALIASUPDATE, alias, indexName);
+    }
+
+    @Override
+    public List<String> getAliases(String indexName) {
+        return commandExecutor.get(getAliasesAsync(indexName));
+    }
+
+    @Override
+    public RFuture<List<String>> getAliasesAsync(String indexName) {
+        return commandExecutor.readAsync(indexName, StringCodec.INSTANCE, RedisCommands.FT_ALIASLIST, indexName);
     }
 
     @Override
@@ -961,6 +995,13 @@ public class RedissonSearch implements RSearch {
 
     @Override
     public RFuture<Void> delCursorAsync(String indexName, long cursorId) {
+        MasterSlaveEntry entry = null;
+        if (isClusterMode()) {
+            entry = cursorRoutes().remove(cursorId);
+        }
+        if (entry != null) {
+            return commandExecutor.writeAsync(entry, StringCodec.INSTANCE, RedisCommands.FT_CURSOR_DEL, indexName, cursorId);
+        }
         return commandExecutor.writeAsync((String) null, StringCodec.INSTANCE, RedisCommands.FT_CURSOR_DEL, indexName, cursorId);
     }
 
@@ -986,7 +1027,29 @@ public class RedissonSearch implements RSearch {
                             new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec))));
         }
 
-        return commandExecutor.writeAsync(indexName, StringCodec.INSTANCE, command, indexName, cursorId);
+        return executeCursorRead(indexName, cursorId, command, indexName, cursorId);
+    }
+
+    private RFuture<AggregationResult> executeCursorRead(String indexName, long cursorId,
+                                                         RedisStrictCommand command, Object... params) {
+        MasterSlaveEntry entry;
+        if (isClusterMode()) {
+            entry = cursorRoutes().get(cursorId);
+        } else {
+            entry = null;
+        }
+        if (entry == null) {
+            return commandExecutor.writeAsync(indexName, StringCodec.INSTANCE, command, params);
+        }
+
+        RFuture<AggregationResult> future = commandExecutor.writeAsync(entry, StringCodec.INSTANCE, command, params);
+        CompletionStage<AggregationResult> result = future.thenApply(r -> {
+            if (r == null || r.getCursorId() == 0) {
+                cursorRoutes().remove(cursorId, entry);
+            }
+            return r;
+        });
+        return new CompletableFutureWrapper<>(result);
     }
 
     @Override
@@ -1011,7 +1074,7 @@ public class RedissonSearch implements RSearch {
                             new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, codec))));
         }
 
-        return commandExecutor.writeAsync(indexName, StringCodec.INSTANCE, command, indexName, cursorId, "COUNT", count);
+        return executeCursorRead(indexName, cursorId, command, indexName, cursorId, "COUNT", count);
     }
 
     @Override
@@ -1089,16 +1152,16 @@ public class RedissonSearch implements RSearch {
     public RFuture<Boolean> hasIndexAsync(String indexName) {
         return commandExecutor.evalReadAsync(indexName, StringCodec.INSTANCE, RedisCommands.EVAL_BOOLEAN,
                         "local result = redis.pcall('FT.INFO', KEYS[1]) "
-                        + "if type(result) == 'table' and result.err then "
+                        + "if result.err then "
                             + "local err = string.lower(result.err) "
-                            + "if string.find(err, ARGV[1]) or string.find(err, ARGV[2]) then "
+                            + "if string.find(err, ARGV[1]) or string.find(err, ARGV[2]) or string.find(err, ARGV[3]) then "
                                 + "return 0 "
                             + "else "
                                 + "return redis.error_reply(result.err) "
                             + "end "
                         + "end "
                         + "return 1 ",
-                Collections.singletonList(indexName), "not found", "no such index"
+                Collections.singletonList(indexName), "not found", "no such index", "unknown index"
         );
     }
 
@@ -1144,7 +1207,7 @@ public class RedissonSearch implements RSearch {
                             new ObjectMapReplayDecoder(new CompositeCodec(StringCodec.INSTANCE, DoubleCodec.INSTANCE))));
         }
 
-        return commandExecutor.readAsync(indexName, StringCodec.INSTANCE, command, args.toArray());
+        return commandExecutor.readRoundRobinAsync(StringCodec.INSTANCE, command, args.toArray());
     }
 
     @Override

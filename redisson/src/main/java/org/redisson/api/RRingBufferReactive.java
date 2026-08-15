@@ -15,6 +15,9 @@
  */
 package org.redisson.api;
 
+import java.util.List;
+
+import org.redisson.api.annotation.EmptyAsAbsent;
 import reactor.core.publisher.Mono;
 
 /**
@@ -60,5 +63,41 @@ public interface RRingBufferReactive<V> extends RQueueReactive<V> {
      * @return queue capacity
      */
     Mono<Integer> capacity();
+
+    /**
+     * Returns the newest (most recently added) elements of this buffer.
+     * At most <code>count</code> elements are returned, ordered from oldest
+     * to newest (same order as {@link #readAll()}). Doesn't remove elements.
+     * <p>
+     * If <code>count</code> is greater than the current size, all elements are returned.
+     *
+     * @param count - maximum number of elements to return
+     * @return list of the newest elements, or an empty list if this buffer is
+     *         empty or <code>count</code> is non-positive
+     */
+    @EmptyAsAbsent
+    Mono<List<V>> readNewest(int count);
+
+    /**
+     * Returns the oldest elements of this buffer.
+     * At most <code>count</code> elements are returned, ordered from oldest
+     * to newest (same order as {@link #readAll()}). Doesn't remove elements.
+     * <p>
+     * If <code>count</code> is greater than the current size, all elements are returned.
+     *
+     * @param count - maximum number of elements to return
+     * @return list of the oldest elements, or an empty list if this buffer is
+     *         empty or <code>count</code> is non-positive
+     */
+    @EmptyAsAbsent
+    Mono<List<V>> readOldest(int count);
+
+    /**
+     * Retrieves, but doesn't remove, the newest (most recently added) element of this buffer,
+     * or returns empty if this buffer is empty.
+     *
+     * @return the newest element, or empty if this buffer is empty
+     */
+    Mono<V> peekLast();
     
 }

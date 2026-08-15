@@ -20,7 +20,7 @@ package org.redisson.api.stream;
  * @author seakider
  *
  */
-public class StreamAckParams extends BaseReferencesParams<StreamAckArgs> implements StreamAckArgs, StreamMessageIdArgs {
+public class StreamAckParams extends BaseReferencesParams<StreamAckArgs> implements StreamAckArgs, StreamMessageIdArgs<StreamAckArgs> {
     private final String groupName;
     private StreamMessageId[] ids;
 

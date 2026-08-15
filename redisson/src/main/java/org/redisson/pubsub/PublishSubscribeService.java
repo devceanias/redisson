@@ -203,7 +203,7 @@ public class PublishSubscribeService {
         }
 
         CompletableFuture<PubSubConnectionEntry> f = subscribe(PubSubType.PSUBSCRIBE, codec, ChannelName.newList(channelName), entry, null, listeners);
-        return f.thenApply(res -> Collections.singletonList(res));
+        return f.thenApply(res -> new ArrayList<>(Collections.singletonList(res)));
     }
 
     public boolean isMultiEntity(ChannelName channelName) {
@@ -403,7 +403,7 @@ public class PublishSubscribeService {
             return connectionManager.getServiceManager().createNodeNotFoundFuture(channelNames.get(0).toString(), slot);
         }
         CompletableFuture<PubSubConnectionEntry> f = subscribe(PubSubType.SUBSCRIBE, codec, new ArrayList<>(channelNames), entry, null, listeners);
-        return f.thenApply(res -> Collections.singletonList(res));
+        return f.thenApply(res -> new ArrayList<>(Collections.singletonList(res)));
     }
 
     public CompletableFuture<PubSubConnectionEntry> ssubscribe(Codec codec, List<ChannelName> channelNames, RedisPubSubListener<?>... listeners) {
@@ -450,6 +450,7 @@ public class PublishSubscribeService {
                                                                 AsyncSemaphore semaphore, RedisPubSubListener<?>... listeners) {
         MasterSlaveEntry entry = getEntry(new ChannelName(channelName));
         if (entry == null) {
+            semaphore.release();
             int slot = connectionManager.calcSlot(channelName);
             return connectionManager.getServiceManager().createNodeNotFoundFuture(channelName, slot);
         }

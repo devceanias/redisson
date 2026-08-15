@@ -9,6 +9,10 @@ import org.redisson.api.RSetCache;
 import org.redisson.api.listener.SetAddListener;
 import org.redisson.client.codec.IntegerCodec;
 import org.redisson.eviction.EvictionScheduler;
+import org.redisson.api.RedissonClient;
+import org.redisson.api.listener.SetExpiredListener;
+import org.redisson.config.Config;
+import java.util.concurrent.ConcurrentHashMap;
 
 import java.io.Serializable;
 import java.time.Duration;
@@ -332,12 +336,12 @@ public class RedissonSetCacheTest extends RedisDockerTest {
     public void testIteratorSequence() {
         RSetCache<Long> set = redisson.getSetCache("set");
         for (int i = 0; i < 1000; i++) {
-            set.add(Long.valueOf(i));
+            set.add((long) i);
         }
 
         Set<Long> setCopy = new HashSet<Long>();
         for (int i = 0; i < 1000; i++) {
-            setCopy.add(Long.valueOf(i));
+            setCopy.add((long) i);
         }
 
         checkIterator(set, setCopy);
@@ -359,7 +363,7 @@ public class RedissonSetCacheTest extends RedisDockerTest {
     public void testIteratorAsync() {
         RSetCache<Long> set = redisson.getSetCache("set");
         for (int i = 0; i < 1000; i++) {
-            set.add(Long.valueOf(i));
+            set.add((long) i);
         }
 
         AsyncIterator<Long> iterator = set.iteratorAsync(5);
@@ -675,9 +679,64 @@ public class RedissonSetCacheTest extends RedisDockerTest {
         assertThat(redisson.getKeys().getKeys()).containsExactlyInAnyOrder("cache1", "cache2", "cache3");
     }
 
-        @Test
-    public void testIntersection() throws InterruptedException {
+    @Test
+    public void testCountUnion() throws InterruptedException {
         redisson.getKeys().flushall();
+        RSetCache<Integer> cache1 = redisson.getSetCache("cache1", IntegerCodec.INSTANCE);
+        cache1.add(1);
+        cache1.add(2, 1, TimeUnit.SECONDS);
+        cache1.add(5, 1, TimeUnit.SECONDS);
+        cache1.add(3);
+
+        RSetCache<Integer> cache2 = redisson.getSetCache("cache2", IntegerCodec.INSTANCE);
+        cache2.add(4);
+        cache2.add(2, 1, TimeUnit.SECONDS);
+        cache2.add(5, 1, TimeUnit.SECONDS);
+        cache2.add(7);
+
+        // 1, 2, 3, 4, 5, 7
+        assertThat(cache1.countUnion("cache2")).isEqualTo(6);
+        assertThat(cache1.countUnionApprox("cache2")).isEqualTo(6);
+        assertThat(cache1.countUnion(3, "cache2")).isEqualTo(3);
+        assertThat(cache1.countUnion("unknownCache")).isEqualTo(4);
+
+        Thread.sleep(1500);
+
+        // expired entries are excluded: 1, 3, 4, 7
+        assertThat(cache1.countUnion("cache2")).isEqualTo(4);
+        assertThat(cache1.countUnion(2, "cache2")).isEqualTo(2);
+
+        // no temporary keys are left behind
+        assertThat(redisson.getKeys().getKeys()).containsExactlyInAnyOrder("cache1", "cache2");
+    }
+
+    @Test
+    public void testCountDiff() throws InterruptedException {
+        RSetCache<Integer> cache1 = redisson.getSetCache("cache1", IntegerCodec.INSTANCE);
+        cache1.add(1);
+        cache1.add(2, 1, TimeUnit.SECONDS);
+        cache1.add(5, 1, TimeUnit.SECONDS);
+        cache1.add(3, 1, TimeUnit.SECONDS);
+
+        RSetCache<Integer> cache2 = redisson.getSetCache("cache2", IntegerCodec.INSTANCE);
+        cache2.add(4);
+        cache2.add(2, 1, TimeUnit.SECONDS);
+        cache2.add(5, 1, TimeUnit.SECONDS);
+        cache2.add(7);
+
+        // {1, 2, 3, 5} minus {2, 4, 5, 7} = 1, 3
+        assertThat(cache1.countDiff("cache2")).isEqualTo(2);
+        assertThat(cache1.countDiff(1, "cache2")).isEqualTo(1);
+        assertThat(cache1.countDiff("unknownCache")).isEqualTo(4);
+
+        Thread.sleep(1500);
+
+        // expired entries are excluded: {1} minus {4, 7} = 1
+        assertThat(cache1.countDiff("cache2")).isEqualTo(1);
+    }
+
+    @Test
+    public void testIntersection() throws InterruptedException {
         RSetCache<Integer> cache1 = redisson.getSetCache("cache1");
         cache1.add(1);
         cache1.add(2, 1, TimeUnit.SECONDS);
@@ -748,5 +807,44 @@ public class RedissonSetCacheTest extends RedisDockerTest {
         Thread.sleep(1200);
         assertThat(cache.addIfAbsent(map)).isTrue();
         redisson.getKeys().flushall();
+    }
+
+    @Test
+    public void testExpiredListener() {
+        Config config = createConfig();
+        config.setMinCleanUpDelay(1);
+        config.setMaxCleanUpDelay(2);
+        RedissonClient redisson = Redisson.create(config);
+        try {
+            RSetCache<Integer> set = redisson.getSetCache("test");
+            AtomicInteger counter = new AtomicInteger();
+            Set<Integer> expired = Collections.newSetFromMap(new ConcurrentHashMap<>());
+
+            int id = set.addListener((SetExpiredListener<Integer>) value -> {
+                counter.incrementAndGet();
+                expired.add(value);
+            });
+
+            set.add(1, 1, TimeUnit.SECONDS);
+            set.add(2, 1, TimeUnit.SECONDS);
+            set.add(3); // no ttl, must not expire
+
+            Awaitility.await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> {
+                assertThat(counter.get()).isEqualTo(2);
+            });
+            assertThat(expired).containsExactlyInAnyOrder(1, 2);
+            assertThat(set).containsExactly(3);
+
+            // removing the listener stops further expiration notifications
+            set.removeListener(id);
+            counter.set(0);
+            set.add(4, 1, TimeUnit.SECONDS);
+            Awaitility.await().pollDelay(Duration.ofSeconds(4)).atMost(Duration.ofSeconds(6))
+                    .untilAsserted(() -> assertThat(counter.get()).isZero());
+
+            set.destroy();
+        } finally {
+            redisson.shutdown();
+        }
     }
 }

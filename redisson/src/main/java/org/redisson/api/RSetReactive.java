@@ -15,6 +15,7 @@
  */
 package org.redisson.api;
 
+import org.redisson.api.annotation.EmptyAsAbsent;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -123,6 +124,7 @@ public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReacti
      * @param amount of random elements
      * @return random elements
      */
+    @EmptyAsAbsent
     Mono<Set<V>> removeRandom(int amount);
     
     /**
@@ -145,6 +147,7 @@ public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReacti
      * @param count - values amount to return
      * @return random elements
      */
+    @EmptyAsAbsent
     Mono<Set<V>> random(int count);
 
     /**
@@ -162,6 +165,7 @@ public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReacti
      *
      * @return values
      */
+    @EmptyAsAbsent
     Mono<Set<V>> readAll();
     
     /**
@@ -180,7 +184,54 @@ public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReacti
      * @param names - name of sets
      * @return size of union
      */
+    @EmptyAsAbsent
     Mono<Set<V>> readUnion(String... names);
+
+    /**
+     * Counts elements of set as a result of sets union with current set.
+     * <p>
+     * Requires <b>Redis 8.10.0 and higher.</b>
+     *
+     * @param names - name of sets
+     * @return amount of elements
+     */
+    Mono<Integer> countUnion(String... names);
+
+    /**
+     * Counts elements of set as a result of sets union with current set.
+     * <p>
+     * Requires <b>Redis 8.10.0 and higher.</b>
+     *
+     * @param names - name of sets
+     * @param limit - sets union limit
+     * @return amount of elements
+     */
+    Mono<Integer> countUnion(int limit, String... names);
+
+    /**
+     * Counts elements of set as a result of sets union with current set.
+     * Returns an approximate value computed through HyperLogLog with
+     * 0.81% standard error instead of an exact one.
+     * <p>
+     * Requires <b>Redis 8.10.0 and higher.</b>
+     *
+     * @param names - name of sets
+     * @return approximate amount of elements
+     */
+    Mono<Integer> countUnionApprox(String... names);
+
+    /**
+     * Counts elements of set as a result of sets union with current set.
+     * Returns an approximate value computed through HyperLogLog with
+     * 0.81% standard error instead of an exact one.
+     * <p>
+     * Requires <b>Redis 8.10.0 and higher.</b>
+     *
+     * @param names - name of sets
+     * @param limit - sets union limit
+     * @return approximate amount of elements
+     */
+    Mono<Integer> countUnionApprox(int limit, String... names);
     
     /**
      * Diff sets specified by name and write to current set.
@@ -198,7 +249,29 @@ public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReacti
      * @param names - name of sets
      * @return values
      */
+    @EmptyAsAbsent
     Mono<Set<V>> readDiff(String... names);
+
+    /**
+     * Counts elements of set as a result of sets difference with current set.
+     * <p>
+     * Requires <b>Redis 8.10.0 and higher.</b>
+     *
+     * @param names - name of sets
+     * @return amount of elements
+     */
+    Mono<Integer> countDiff(String... names);
+
+    /**
+     * Counts elements of set as a result of sets difference with current set.
+     * <p>
+     * Requires <b>Redis 8.10.0 and higher.</b>
+     *
+     * @param names - name of sets
+     * @param limit - sets difference limit
+     * @return amount of elements
+     */
+    Mono<Integer> countDiff(int limit, String... names);
     
     /**
      * Intersection sets specified by name and write to current set.
@@ -237,6 +310,7 @@ public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReacti
      * @param names - name of sets
      * @return values
      */
+    @EmptyAsAbsent
     Mono<Set<V>> readIntersection(String... names);
 
     /**
@@ -257,6 +331,7 @@ public interface RSetReactive<V> extends RCollectionReactive<V>, RSortableReacti
      * @param c - collection to check
      * @return contained elements
      */
+    @EmptyAsAbsent
     Mono<Set<V>> containsEach(Collection<V> c);
 
     /**
